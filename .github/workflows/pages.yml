@@ -1,0 +1,59 @@
+# Publishes the static site to GitHub Pages after a merge to main.
+#
+# enablement is intentionally off. actions/configure-pages can turn Pages on
+# only with a token that has administration permission. The default
+# GITHUB_TOKEN cannot, and this repo stores no tokens.
+#
+# An admin turns it on once:
+# Settings → Pages → Build and deployment → Source: GitHub Actions
+# https://github.com/Starpony999/b6-audit/settings/pages
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - "cursor/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run unit tests
+        run: node --test
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

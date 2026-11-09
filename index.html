@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a73e8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>B6 Management</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <strong>B6 Management</strong>
+    <span id="whoami" class="muted"></span>
+    <button type="button" id="logoutBtn" hidden>Log out</button>
+  </header>
+  <main id="app">
+    <section id="view-login" class="view">
+      <h1>B6 Management</h1>
+      <p class="muted">Sign in with the email and password an admin gave you. This is not a Google sign-in.</p>
+      <form id="loginForm" class="card">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" autocomplete="username" required>
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+        <button type="submit">Sign in</button>
+        <p id="loginStatus" class="muted" role="status"></p>
+      </form>
+      <p><button type="button" id="showBootstrap" class="secondary">First admin setup</button></p>
+      <form id="bootstrapForm" class="card" hidden>
+        <strong>Create the first admin</strong>
+        <p class="muted">Use this once, after BOOTSTRAP_SECRET is set on the script. It will not replace a password that already exists.</p>
+        <label for="bootName">Name</label>
+        <input id="bootName" type="text" autocomplete="name">
+        <label for="bootEmail">Email</label>
+        <input id="bootEmail" type="email" autocomplete="username">
+        <label for="bootPassword">Password (at least 10 characters)</label>
+        <input id="bootPassword" type="password" autocomplete="new-password">
+        <label for="bootPassword2">Type the password again</label>
+        <input id="bootPassword2" type="password" autocomplete="new-password">
+        <label for="bootSecret">Setup phrase</label>
+        <input id="bootSecret" type="password" autocomplete="off">
+        <button type="submit">Create admin and sign in</button>
+        <p id="bootStatus" class="muted" role="status"></p>
+      </form>
+    </section>
+
+    <section id="view-password" class="view">
+      <h1>Choose a new password</h1>
+      <p class="muted">Use at least 10 characters. After this, the temporary password stops working.</p>
+      <form id="passwordForm" class="card">
+        <label for="currentPassword">Current password</label>
+        <input id="currentPassword" type="password" autocomplete="current-password" required>
+        <label for="newPassword">New password</label>
+        <input id="newPassword" type="password" autocomplete="new-password" required>
+        <label for="newPassword2">Type the new password again</label>
+        <input id="newPassword2" type="password" autocomplete="new-password" required>
+        <button type="submit">Save password</button>
+        <p id="passwordStatus" class="muted" role="status"></p>
+      </form>
+    </section>
+
+    <section id="view-home" class="view">
+      <h1>B6 Management</h1>
+      <p class="muted">Pick a tool.</p>
+      <div class="tool-grid">
+        <div class="card">
+          <strong>Store Audit</strong>
+          <p class="muted">Walk the store and score a checklist.</p>
+          <button type="button" data-nav="templates">Open audits</button>
+        </div>
+        <div class="card">
+          <strong>My to-dos</strong>
+          <p class="muted">Open tasks assigned to you.</p>
+          <button type="button" data-nav="mytodos">View to-dos</button>
+        </div>
+        <div class="card" id="homeUsersCard" hidden>
+          <strong>Users</strong>
+          <p class="muted">Add people and set their passwords.</p>
+          <button type="button" data-nav="users">Manage users</button>
+        </div>
+        <div class="card" id="homeBuilderCard" hidden>
+          <strong>Template builder</strong>
+          <p class="muted">Create and edit checklists (admins).</p>
+          <button type="button" data-nav="builder">Open builder</button>
+        </div>
+        <div class="card" id="homePastDueCard" hidden>
+          <strong>Past due</strong>
+          <p class="muted">Admins: open tasks past their due date by person.</p>
+          <button type="button" data-nav="pastdue">Open Past due</button>
+        </div>
+        <div class="card">
+          <strong>Fun Zone Inventory</strong>
+          <p class="muted">Prize counts for the Pizza Ranch arcades.</p>
+          <a class="button" href="https://starpony999.github.io/funzone-inventory/">Open inventory</a>
+        </div>
+        <div class="card">
+          <strong>Your password</strong>
+          <p class="muted">Change the password for this login.</p>
+          <button type="button" data-nav="password" class="secondary">Change password</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-templates" class="view">
+      <p><button type="button" data-nav="home">← Home</button></p>
+      <h1>Audits</h1>
+      <div class="card">
+        <label for="auditStore"><strong>Store for this audit</strong> <span class="muted">(required)</span></label>
+        <select id="auditStore" required>
+          <option value="">Select a store…</option>
+        </select>
+        <p class="muted">Pick the store first. Only checklists that apply to that store appear below.</p>
+      </div>
+      <p class="muted">Then choose a checklist to start.</p>
+      <div id="templates">Select a store to see checklists…</div>
+    </section>
+
+    <section id="view-users" class="view">
+      <p><button type="button" data-nav="home">← Home</button></p>
+      <h1>Users</h1>
+      <div id="usersList">Loading…</div>
+    </section>
+
+    <section id="view-audit" class="view">
+      <div id="auditBox"></div>
+    </section>
+
+    <section id="view-todos" class="view">
+      <div id="todosBox"></div>
+    </section>
+
+    <section id="view-mytodos" class="view">
+      <p><button type="button" data-nav="home">← Home</button></p>
+      <h1>My to-dos</h1>
+      <div id="myTodosList">Loading…</div>
+    </section>
+
+    <section id="view-pastdue" class="view">
+      <p><button type="button" data-nav="home">← Home</button></p>
+      <h1>Past due</h1>
+      <p class="muted">Admins only. Open tasks with a due date before today (not due today). Completed tasks are hidden.</p>
+      <p><button type="button" id="refreshPastDue">Refresh</button></p>
+      <p id="pastDueAuth" class="muted">Checking access…</p>
+      <div id="pastDueBox"></div>
+    </section>
+
+    <section id="view-builder" class="view">
+      <p><button type="button" data-nav="home">← Home</button></p>
+      <h1>Template builder</h1>
+      <p class="muted">Admins only. Edit checklists, store targeting, answer choices, and to-do rules.</p>
+      <p id="builderAuth" class="muted">Checking access…</p>
+      <div id="builderSchema" class="card" hidden>
+        <strong>Sheet columns</strong>
+        <p class="muted">Adds any missing password columns, Applies to, full-points answer, to-do reminder columns, and the Sessions tab. Does not change existing cell values.</p>
+        <button type="button" id="runSchema">Add missing columns</button>
+        <p id="builderSchemaStatus" class="muted"></p>
+      </div>
+      <div id="builderCreate" class="card" hidden>
+        <strong>Create a checklist</strong>
+        <p><input type="text" id="newTemplateName" placeholder="Checklist name (required)"></p>
+        <p><input type="text" id="newTemplateDescription" placeholder="Short description (optional)"></p>
+        <p><label for="newTemplateApplies"><strong>Applies to</strong></label>
+          <select id="newTemplateApplies">
+            <option value="ALL" selected>All stores</option>
+            <option value="RANCH">Pizza Ranch only (WPR + CPR)</option>
+            <option value="ZIGGIS">Ziggi's only (WZ + SPZ)</option>
+            <option value="SELECTED">Selected stores…</option>
+          </select></p>
+        <div id="newTemplateStorePick" hidden>
+          <label><input type="checkbox" value="WPR" class="newAppliesStore"> WPR</label>
+          <label><input type="checkbox" value="CPR" class="newAppliesStore"> CPR</label>
+          <label><input type="checkbox" value="WZ" class="newAppliesStore"> WZ</label>
+          <label><input type="checkbox" value="SPZ" class="newAppliesStore"> SPZ</label>
+        </div>
+        <button type="button" id="submitNewTemplate">Create template</button>
+        <p id="builderCreateStatus" class="muted"></p>
+      </div>
+      <div id="builderList">Loading…</div>
+    </section>
+
+    <section id="view-builder-detail" class="view">
+      <p><button type="button" data-nav="builder">← Templates</button></p>
+      <h1 id="builderDetailTitle">Edit template</h1>
+      <div id="builderRename" class="card">
+        <strong>Checklist settings</strong>
+        <p><input type="text" id="renameTemplateName" placeholder="Checklist name"></p>
+        <p><label for="editTemplateApplies"><strong>Applies to</strong></label>
+          <select id="editTemplateApplies">
+            <option value="ALL">All stores</option>
+            <option value="RANCH">Pizza Ranch only (WPR + CPR)</option>
+            <option value="ZIGGIS">Ziggi's only (WZ + SPZ)</option>
+            <option value="SELECTED">Selected stores…</option>
+          </select></p>
+        <div id="editTemplateStorePick" hidden>
+          <label><input type="checkbox" value="WPR" class="editAppliesStore"> WPR</label>
+          <label><input type="checkbox" value="CPR" class="editAppliesStore"> CPR</label>
+          <label><input type="checkbox" value="WZ" class="editAppliesStore"> WZ</label>
+          <label><input type="checkbox" value="SPZ" class="editAppliesStore"> SPZ</label>
+        </div>
+        <button type="button" id="submitTemplateMeta">Save checklist settings</button>
+        <button type="button" id="saveAllBuilder" class="good">Save all</button>
+        <p class="muted">Save all writes checklist settings and every existing question below (it checks them first). Add question stays separate.</p>
+        <p id="builderRenameStatus" class="muted"></p>
+        <p id="builderSaveAllStatus" class="muted"></p>
+      </div>
+      <div id="builderAddQuestion" class="card">
+        <strong>Add question</strong>
+        <p class="muted">Types: Yes/No or Multiple choice. To-do rule blank = default title; OFF disables the auto to-do.</p>
+        <p><input type="text" id="newQSection" placeholder="Section (required)"></p>
+        <p><input type="text" id="newQText" placeholder="Question text (required)"></p>
+        <p><input type="text" id="newQPoints" placeholder="Points (0–100)" value="5"></p>
+        <p><label for="newQType"><strong>Type</strong></label>
+          <select id="newQType">
+            <option value="yesno" selected>Yes / No</option>
+            <option value="multiple">Multiple choice</option>
+          </select></p>
+        <div id="newQYesNoFields">
+          <p><label for="newQFull"><strong>Full points when the answer is</strong></label>
+            <select id="newQFull">
+              <option value="yes" selected>Yes</option>
+              <option value="no">No</option>
+            </select></p>
+        </div>
+        <div id="newQMultipleFields" hidden>
+          <p><input type="text" id="newQOptions" placeholder="Choices: Good:5|Fair:3|Poor:0"></p>
+        </div>
+        <p><input type="text" id="newQTodo" placeholder="To-do title if imperfect (or OFF)"></p>
+        <button type="button" id="submitNewQuestion">Add question</button>
+        <p id="builderAddQStatus" class="muted"></p>
+      </div>
+      <h2>Questions</h2>
+      <div id="builderQuestions">Loading…</div>
+    </section>
+  </main>
+  <noscript><p>B6 Management needs JavaScript.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

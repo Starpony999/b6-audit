@@ -1,0 +1,73 @@
+[hidden] { display: none !important; }
+
+body {
+  font-family: Arial, sans-serif;
+  margin: 24px;
+  max-width: 640px;
+  color: #202124;
+  background: #fff;
+}
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.2rem; }
+.topbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  background: #fff;
+}
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.tool-grid .card { margin: 0; display: flex; flex-direction: column; }
+.tool-grid .card .button,
+.tool-grid .card button { margin-top: auto; align-self: flex-start; }
+@media (min-width: 700px) {
+  .tool-grid { grid-template-columns: 1fr 1fr; }
+  body { max-width: 900px; }
+}
+button, .button {
+  display: inline-block;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: #1a73e8;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+button.secondary { background: #5f6368; }
+button.good { background: #188038; }
+button:disabled { opacity: 0.6; cursor: default; }
+.muted { color: #666; font-size: 0.9rem; }
+.error { color: #b00020; }
+form label, .card > label { display: block; margin-top: 8px; }
+label.choice { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px 0 0; }
+label.choice input { width: auto; margin: 0; }
+.media-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd; }
+select, input[type="text"], input[type="email"], input[type="password"], input[type="date"] {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+.view { display: none; }
+.view.active { display: block; }
+.nav-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.media-row { margin: 8px 0; }
+.media-row img { max-width: 100%; max-height: 160px; display: block; margin-bottom: 4px; }
+.store-picks label { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; }
+.store-picks input { width: auto; margin: 0; }
