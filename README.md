@@ -204,6 +204,32 @@ While testing from a computer, you may also add `http://127.0.0.1:4173` and `htt
 
 Use a bucket name with only lowercase letters, numbers, and dashes. Dots in the name break the web address the phone uploads to.
 
+## Screen addresses
+
+Each screen has its own address after the `#`. GitHub Pages cannot route paths like `/past-due` (that would 404), so the address lives in the hash and the same `index.html` stays loaded. Refresh stays on that screen. The browser Back and Forward buttons move between screens. You can bookmark one.
+
+| Screen | Address |
+| --- | --- |
+| Home | `#/home` |
+| Sign in | `#/login` |
+| Change password | `#/password` |
+| Store picker | `#/audits` or `#/audits/CPR` (also WPR, WZ, SPZ) |
+| Audit section | `#/audit/<audit id>/section/0` (0 is the first section, then 1, 2, …) |
+| To-do review | `#/audit/<audit id>/review` |
+| My to-dos | `#/my-todos` |
+| Template builder | `#/builder` |
+| Checklist editor | `#/builder/<checklist id>` |
+| Users | `#/users` |
+| Past due | `#/past-due` |
+
+Fun Zone Inventory is a separate site, `https://starpony999.github.io/funzone-inventory/`. Photo and video view links are short-lived Backblaze addresses opened in a new tab. They expire, so they are not bookmarks.
+
+The sign-in token stays in this phone's local storage until you log out or the server session hits 12 hours. Refresh and closing the tab do not log you out. On a shared phone that is the risky part: the next person is still you until someone taps Log out. Log out when you hand the phone over. (A token that vanished when the tab closed would be safer on a shared phone, and would also force a new sign-in every time the home-screen icon was opened.)
+
+Answers, notes, and attached file names for the audit you are in are saved on the phone as you go, including the section you are on. A refresh keeps them. Photo previews may disappear after a refresh; the file is still attached if the upload finished. That saved copy is removed when the to-dos are created, or when you log out. It is not removed at "Save answers & continue", because that is the copy the phone needs for Fix answers and for refreshing the review screen. The sheet does not send those in-progress answers back.
+
+A manager who opens `#/builder`, `#/builder/<id>`, `#/users`, or `#/past-due` sees "Only an admin can do that." The server does not send the checklist, the user list, or the past-due rows.
+
 ## How sign-in and passwords work
 
 Apps Script cannot run bcrypt or a dedicated password service. This script uses **PBKDF2 with HMAC-SHA256, 5,000 rounds, and a random salt.** Each round scrambles the password again. Five thousand is as many as a sign-in request in Apps Script can comfortably do. A normal login server would do far more. The 15-minute lockout after 8 wrong tries is there to make guessing slow. This is an internal staff tool.

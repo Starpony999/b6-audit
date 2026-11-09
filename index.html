@@ -70,27 +70,27 @@
         <div class="card">
           <strong>Store Audit</strong>
           <p class="muted">Walk the store and score a checklist.</p>
-          <button type="button" data-nav="templates">Open audits</button>
+          <a class="button" href="#/audits" data-nav="templates">Open audits</a>
         </div>
         <div class="card">
           <strong>My to-dos</strong>
           <p class="muted">Open tasks assigned to you.</p>
-          <button type="button" data-nav="mytodos">View to-dos</button>
+          <a class="button" href="#/my-todos" data-nav="mytodos">View to-dos</a>
         </div>
         <div class="card" id="homeUsersCard" hidden>
           <strong>Users</strong>
           <p class="muted">Add people and set their passwords.</p>
-          <button type="button" data-nav="users">Manage users</button>
+          <a class="button" href="#/users" data-nav="users">Manage users</a>
         </div>
         <div class="card" id="homeBuilderCard" hidden>
           <strong>Template builder</strong>
           <p class="muted">Create and edit checklists (admins).</p>
-          <button type="button" data-nav="builder">Open builder</button>
+          <a class="button" href="#/builder" data-nav="builder">Open builder</a>
         </div>
         <div class="card" id="homePastDueCard" hidden>
           <strong>Past due</strong>
           <p class="muted">Admins: open tasks past their due date by person.</p>
-          <button type="button" data-nav="pastdue">Open Past due</button>
+          <a class="button" href="#/past-due" data-nav="pastdue">Open Past due</a>
         </div>
         <div class="card">
           <strong>Fun Zone Inventory</strong>
@@ -100,13 +100,13 @@
         <div class="card">
           <strong>Your password</strong>
           <p class="muted">Change the password for this login.</p>
-          <button type="button" data-nav="password" class="secondary">Change password</button>
+          <a class="button secondary" href="#/password" data-nav="password">Change password</a>
         </div>
       </div>
     </section>
 
     <section id="view-templates" class="view">
-      <p><button type="button" data-nav="home">← Home</button></p>
+      <p><a class="button" href="#/home" data-nav="home">← Home</a></p>
       <h1>Audits</h1>
       <div class="card">
         <label for="auditStore"><strong>Store for this audit</strong> <span class="muted">(required)</span></label>
@@ -120,7 +120,7 @@
     </section>
 
     <section id="view-users" class="view">
-      <p><button type="button" data-nav="home">← Home</button></p>
+      <p><a class="button" href="#/home" data-nav="home">← Home</a></p>
       <h1>Users</h1>
       <div id="usersList">Loading…</div>
     </section>
@@ -134,13 +134,13 @@
     </section>
 
     <section id="view-mytodos" class="view">
-      <p><button type="button" data-nav="home">← Home</button></p>
+      <p><a class="button" href="#/home" data-nav="home">← Home</a></p>
       <h1>My to-dos</h1>
       <div id="myTodosList">Loading…</div>
     </section>
 
     <section id="view-pastdue" class="view">
-      <p><button type="button" data-nav="home">← Home</button></p>
+      <p><a class="button" href="#/home" data-nav="home">← Home</a></p>
       <h1>Past due</h1>
       <p class="muted">Admins only. Open tasks with a due date before today (not due today). Completed tasks are hidden.</p>
       <p><button type="button" id="refreshPastDue">Refresh</button></p>
@@ -149,7 +149,7 @@
     </section>
 
     <section id="view-builder" class="view">
-      <p><button type="button" data-nav="home">← Home</button></p>
+      <p><a class="button" href="#/home" data-nav="home">← Home</a></p>
       <h1>Template builder</h1>
       <p class="muted">Admins only. Edit checklists, store targeting, answer choices, and to-do rules.</p>
       <p id="builderAuth" class="muted">Checking access…</p>
@@ -183,7 +183,7 @@
     </section>
 
     <section id="view-builder-detail" class="view">
-      <p><button type="button" data-nav="builder">← Templates</button></p>
+      <p><a class="button" href="#/builder" data-nav="builder">← Templates</a></p>
       <h1 id="builderDetailTitle">Edit template</h1>
       <div id="builderRename" class="card">
         <strong>Checklist settings</strong>
