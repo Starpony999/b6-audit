@@ -33,17 +33,18 @@ test('every JavaScript file parses, including Apps Script', () => {
   });
 });
 
-test('the manifest is an anonymous web app and the config has no real URL', () => {
+const DEPLOYED_WEB_APP = 'https://script.google.com/macros/s/AKfycbyKHDcdkeCuG3smlzgaPTUubHIqs3S9zjqRLlXJrwTVnf5GI2r47f1-5rm19PUPseex/exec';
+
+test('the manifest is an anonymous web app and the config uses the deployed URL', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'appsscript.json'), 'utf8'));
   assert.equal(manifest.webapp.executeAs, 'USER_DEPLOYING');
   assert.equal(manifest.webapp.access, 'ANYONE_ANONYMOUS');
   assert.equal(manifest.oauthScopes.includes('https://www.googleapis.com/auth/drive'), false);
   const config = fs.readFileSync(path.join(root, 'js', 'config.js'), 'utf8');
-  assert.match(config, /export const SCRIPT_URL = "";/);
-  assert.doesNotMatch(config, /script\.google\.com\/macros/);
+  assert.match(config, new RegExp('export const SCRIPT_URL = "' + DEPLOYED_WEB_APP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '";'));
 });
 
-test('the repo does not contain a live web-app URL or a private key', () => {
+test('the repo does not contain another web-app URL or a private key', () => {
   const files = walk(root, []).filter((file) => !file.includes(`${path.sep}tests${path.sep}media-sigv4.test.js`));
   const banned = [
     /AIza[0-9A-Za-z_-]{20,}/,
@@ -52,7 +53,7 @@ test('the repo does not contain a live web-app URL or a private key', () => {
   ];
   files.forEach((file) => {
     if (!/\.(js|gs|json|html|css|md|yml)$/.test(file)) return;
-    const text = fs.readFileSync(file, 'utf8');
+    const text = fs.readFileSync(file, 'utf8').split(DEPLOYED_WEB_APP).join('');
     banned.forEach((pattern) => {
       assert.equal(pattern.test(text), false, file + ' matched ' + pattern);
     });

@@ -4,7 +4,7 @@ This is the phone page for store audits and to-dos at Pizza Ranch (Wentzville an
 
 The page itself is a normal website. GitHub Pages hosts it. The Google Sheet is still the database. A small Apps Script web app is only the door between the page and the sheet. People sign in with an email and a password that an admin creates. They do not sign in with Google. That is what removes the "Sorry, unable to open the file" message that showed up when someone was signed into more than one Google account.
 
-Nothing in this repository is a password, a Backblaze key, or a live web-app address. Those stay in Apps Script → Project Settings → Script properties, or in the sheet as a scrambled password.
+Nothing in this repository is a password or a Backblaze key. Those stay in Apps Script → Project Settings → Script properties, or in the sheet as a scrambled password. The web app address in `js/config.js` is the front door, not a secret.
 
 The website files live in the **root of this repo** (the same folder as this README), not in a `docs` folder. After GitHub Pages is turned on, the address is:
 
@@ -16,7 +16,7 @@ https://starpony999.github.io/b6-audit/
 | --- | --- |
 | `index.html` | The website. This is the page people open. |
 | `css/app.css` | The website. Colors, cards, and the two-column home screen. |
-| `js/config.js` | The website. **The only file you edit** to paste the Apps Script `/exec` address. |
+| `js/config.js` | The website. The Apps Script `/exec` address is already in this file. |
 | `js/api.js` | The website. Sends each action to the script. Do not put secrets here. |
 | `js/app.js` | The website. Login, audits, to-dos, users, past due. |
 | `js/builder.js` | The website. Template builder (admins). |
@@ -124,17 +124,15 @@ A saved file that was not deployed is not what the phone is talking to.
 
 There is no built-in password such as `admin` or `password`. If the setup phrase is wrong eight times, setup pauses for 15 minutes. After any account has a password, this screen stops working. Use **Users → Reset password** after that.
 
-### 7. Put the `/exec` URL in the website
+### 7. The `/exec` URL is already in the website
 
-Open `js/config.js`. It looks like this:
+`js/config.js` already points at the deployed web app:
 
 ```javascript
-export const SCRIPT_URL = "";
+export const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyKHDcdkeCuG3smlzgaPTUubHIqs3S9zjqRLlXJrwTVnf5GI2r47f1-5rm19PUPseex/exec";
 ```
 
-Paste the `/exec` URL between the quotes. Commit that change and merge it to `main` so the live site picks it up.
-
-That address is the front door. It is not a Backblaze key and it is not a password. Once it is on the public site, anyone can try to sign in, and the password plus the lockout are what stop them. Do not put the setup phrase or Backblaze keys in this file.
+That address is the front door. It is not a Backblaze key and it is not a password. Once it is on the public site, anyone can try to sign in, and the password plus the lockout are what stop them. Do not put the setup phrase or Backblaze keys in this file. If you deploy a different web app later, replace this URL and merge that change to `main`.
 
 ### 8. Turn on GitHub Pages (once)
 
@@ -265,7 +263,7 @@ node --test
 
 They use a fake spreadsheet, fake mail, and a fake Apps Script `Utilities` in Node. They do **not** call Google, Gmail, or Backblaze.
 
-They do check: password scrambling against a known PBKDF2 result, sessions stored only as a hash, lockout, logout, role and active re-read, forced password change, admin-only builder / past due / users, store and assignee filtering, scoring (including "No gets full points"), save-all refusing a bad row without writing, to-do creation, the 30-day default, reminder dates, past-due grouping, media rules, and the AWS sample signature for presigned URLs. They also check that every JavaScript file parses and that `js/config.js` has an empty URL.
+They do check: password scrambling against a known PBKDF2 result, sessions stored only as a hash, lockout, logout, role and active re-read, forced password change, admin-only builder / past due / users, store and assignee filtering, scoring (including "No gets full points"), save-all refusing a bad row without writing, to-do creation, the 30-day default, reminder dates, past-due grouping, media rules, and the AWS sample signature for presigned URLs. They also check that every JavaScript file parses and that `js/config.js` points at this deployed `/exec` URL.
 
 Not verified live: a real deploy, a real sign-in through Google's web app, a real MailApp delivery, a real Backblaze upload from a phone, or GitHub Pages itself.
 
