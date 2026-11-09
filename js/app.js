@@ -7,8 +7,16 @@ import {
   mergeSectionAnswers,
   stepSection,
 } from "./audit-ui.js";
-import { bindBuilderControls, loadBuilderHome, registerBuilder } from "./builder.js";
+import { bindBuilderControls, loadBuilderHome, openBuilderTemplate, registerBuilder } from "./builder.js";
 import { uploadAuditFile } from "./media.js";
+import {
+  NEXT_KEY,
+  clearDraft,
+  draftForUser,
+  hashForRoute,
+  routeFromHash,
+  saveDraft,
+} from "./routes.js";
 
 const VIEWS = ["login", "password", "home", "templates", "users", "audit", "todos", "mytodos", "pastdue", "builder", "builder-detail"];
 
@@ -26,6 +34,7 @@ const state = {
   builderTemplateId: null,
   builderQuestionIds: [],
   saveAllBusy: false,
+  ready: false,
 };
 
 registerBuilder({
@@ -41,23 +50,160 @@ function setStatus(id, message, isError) {
   el.className = isError ? "error" : "muted";
 }
 
-function showView(name) {
-  if (!state.user && name !== "login") name = "login";
-  if (state.user && state.user.mustChangePassword && name !== "password" && name !== "login") name = "password";
+function showView(name, extra) {
+  extra = extra || {};
+  if (name === "builder-detail" && extra.templateId) state.builderTemplateId = extra.templateId;
+  const route = {
+    name,
+    store: name === "templates" ? (extra.store != null ? extra.store : storeValue()) : "",
+    auditId: name === "todos"
+      ? ((state.lastResult && state.lastResult.auditId) || (state.audit && state.audit.auditId) || "")
+      : (state.audit && state.audit.auditId) || "",
+    section: state.sectionIndex || 0,
+    templateId: extra.templateId || state.builderTemplateId || "",
+  };
+  go(route);
+}
+
+function storeValue() {
+  const select = document.getElementById("auditStore");
+  return select ? select.value.trim() : "";
+}
+
+function rememberDraft() {
+  if (state.audit && state.user) saveDraft(localStorage, state, state.user.email);
+}
+
+function go(route, opts) {
+  let next = route;
+  if (!state.user && next.name !== "login") {
+    try { sessionStorage.setItem(NEXT_KEY, hashForRoute(next)); } catch (err) {}
+    next = { name: "login" };
+  } else if (state.user && state.user.mustChangePassword && next.name !== "password" && next.name !== "login") {
+    try { sessionStorage.setItem(NEXT_KEY, hashForRoute(next)); } catch (err) {}
+    next = { name: "password" };
+  }
+  const hash = hashForRoute(next);
+  const current = location.hash || "#/home";
+  if (current === hash) {
+    applyRoute(routeFromHash(hash));
+    return;
+  }
+  if (opts && opts.replace) {
+    history.replaceState(null, "", hash);
+    applyRoute(routeFromHash(hash));
+    return;
+  }
+  location.hash = hash;
+}
+
+function activate(name) {
   VIEWS.forEach((view) => {
     const el = document.getElementById("view-" + view);
     if (el) el.classList.toggle("active", view === name);
   });
-  if (name === "templates") {
-    fillStores();
-    loadTemplates();
-  }
-  if (name === "users") loadUsers();
-  if (name === "mytodos") loadMyTodos();
-  if (name === "pastdue") loadPastDue();
-  if (name === "builder") loadBuilderHome();
   paintHome();
   window.scrollTo(0, 0);
+}
+
+function applyRoute(route) {
+  if (!state.user && route.name !== "login") {
+    try { sessionStorage.setItem(NEXT_KEY, hashForRoute(route)); } catch (err) {}
+    if ((location.hash || "") !== "#/login") {
+      history.replaceState(null, "", "#/login");
+    }
+    activate("login");
+    return;
+  }
+  if (state.user && state.user.mustChangePassword && route.name !== "password") {
+    try { sessionStorage.setItem(NEXT_KEY, hashForRoute(route)); } catch (err) {}
+    if ((location.hash || "") !== "#/password") history.replaceState(null, "", "#/password");
+    activate("password");
+    return;
+  }
+  const onAudit = document.getElementById("view-audit").classList.contains("active");
+  if (onAudit && state.audit && route.auditId === state.audit.auditId && (route.name === "audit" || route.name === "todos")) {
+    captureSection();
+    rememberDraft();
+  }
+  activate(route.name);
+  if (route.name === "templates") {
+    fillStores();
+    const select = document.getElementById("auditStore");
+    if (route.store && Array.from(select.options).some((option) => option.value === route.store)) {
+      select.value = route.store;
+    }
+    loadTemplates();
+  }
+  if (route.name === "audit") restoreAudit(route);
+  if (route.name === "todos") restoreReview(route);
+  if (route.name === "users") loadUsers();
+  if (route.name === "mytodos") loadMyTodos();
+  if (route.name === "pastdue") loadPastDue();
+  if (route.name === "builder") loadBuilderHome();
+  if (route.name === "builder-detail") openBuilderTemplate(route.templateId);
+}
+
+function adoptDraft(draft) {
+  state.audit = draft.audit;
+  state.answers = draft.answers || {};
+  state.media = {};
+  Object.keys(draft.media || {}).forEach((id) => {
+    state.media[id] = (draft.media[id] || []).map((file) => ({
+      objectKey: file.objectKey,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      previewUrl: "",
+    }));
+  });
+  state.sections = groupQuestionsBySection((draft.audit && draft.audit.questions) || []);
+  state.lastResult = draft.lastResult || null;
+  state.todosLocked = !!draft.todosLocked;
+  state.submitting = false;
+}
+
+function restoreAudit(route) {
+  const box = document.getElementById("auditBox");
+  if (state.audit && state.audit.auditId === route.auditId) {
+    const max = state.sections.length;
+    state.sectionIndex = max ? Math.min(route.section || 0, max - 1) : 0;
+    renderAuditSection();
+    return;
+  }
+  const draft = draftForUser(localStorage, state.user && state.user.email);
+  if (!draft || draft.audit.auditId !== route.auditId) {
+    state.audit = null;
+    box.innerHTML = '<p><a class="button" href="#/audits">← Audits</a></p>' +
+      "<h2>Doing audit</h2>" +
+      '<p class="muted">This audit is not on this phone anymore. Start it again from Audits. Answers already sent to the sheet are still there.</p>';
+    return;
+  }
+  adoptDraft(draft);
+  const max = state.sections.length;
+  state.sectionIndex = max ? Math.min(route.section || 0, max - 1) : 0;
+  renderAuditSection();
+}
+
+function restoreReview(route) {
+  if (state.lastResult && state.lastResult.auditId === route.auditId) {
+    showTodoReview(state.lastResult);
+    return;
+  }
+  const draft = draftForUser(localStorage, state.user && state.user.email);
+  if (draft && draft.audit.auditId === route.auditId && draft.lastResult) {
+    adoptDraft(draft);
+    showTodoReview(draft.lastResult);
+    return;
+  }
+  if (draft && draft.audit.auditId === route.auditId) {
+    adoptDraft(draft);
+    go({ name: "audit", auditId: route.auditId, section: draft.sectionIndex || 0 }, { replace: true });
+    return;
+  }
+  document.getElementById("todosBox").innerHTML =
+    '<p><a class="button" href="#/audits">← Audits</a></p>' +
+    "<h2>Review to-dos</h2>" +
+    '<p class="muted">This review is not on this phone anymore. If to-dos were already created, they are under My to-dos.</p>';
 }
 
 function paintHome() {
@@ -80,7 +226,20 @@ function acceptSession(data) {
   setToken(data.token);
   state.user = data.user;
   state.stores = data.stores || [];
-  showView(data.mustChangePassword || data.user.mustChangePassword ? "password" : "home");
+  if (!draftForUser(localStorage, data.user.email)) clearDraft(localStorage);
+  let next = "";
+  try { next = sessionStorage.getItem(NEXT_KEY) || ""; } catch (err) { next = ""; }
+  try { sessionStorage.removeItem(NEXT_KEY); } catch (err) {}
+  if (data.mustChangePassword || data.user.mustChangePassword) {
+    go({ name: "password" }, { replace: true });
+    return;
+  }
+  if (next && next !== "#/login" && next !== "#/password") {
+    history.replaceState(null, "", next);
+    applyRoute(routeFromHash(next));
+    return;
+  }
+  go({ name: "home" }, { replace: true });
 }
 
 function fillStores() {
@@ -140,8 +299,9 @@ async function startAudit(templateId) {
     window.alert("Pick a store for this audit before starting.");
     return;
   }
-  showView("audit");
-  document.getElementById("auditBox").textContent = "Starting audit…";
+  const box = document.getElementById("templates");
+  const previous = box.textContent;
+  box.textContent = "Starting audit…";
   try {
     const payload = await api("beginAudit", { templateId, store });
     state.audit = payload;
@@ -150,13 +310,15 @@ async function startAudit(templateId) {
     state.sectionIndex = 0;
     state.submitting = false;
     state.todosLocked = false;
+    state.lastResult = null;
     state.sections = groupQuestionsBySection(payload.questions || []);
     (payload.questions || []).forEach((q) => {
       state.answers[q.questionId] = { answer: "", note: "" };
     });
-    renderAuditSection();
+    rememberDraft();
+    go({ name: "audit", auditId: payload.auditId, section: 0 });
   } catch (err) {
-    document.getElementById("auditBox").textContent = err.message;
+    box.textContent = err.message || previous;
   }
 }
 
@@ -174,6 +336,12 @@ function renderAuditSection() {
   const box = document.getElementById("auditBox");
   if (!state.audit) {
     box.textContent = "No audit in progress.";
+    return;
+  }
+  if (state.todosLocked) {
+    box.innerHTML = '<p><a class="button" href="#/my-todos">My to-dos</a></p>' +
+      "<h2>Doing audit</h2>" +
+      '<p class="muted">To-dos were already created for this audit, so the answers stay as they were sent. Open My to-dos to work the tasks, or start a new audit.</p>';
     return;
   }
   if (!state.sections.length) {
@@ -194,6 +362,7 @@ function renderAuditSection() {
     "</strong><p class=\"muted\">Answer these items, then continue. Point values stay hidden until you submit.</p></div>";
   document.getElementById("leaveAudit").addEventListener("click", () => {
     captureSection();
+    rememberDraft();
     showView("templates");
   });
   section.questions.forEach((q) => {
@@ -213,8 +382,9 @@ function renderAuditSection() {
     back.textContent = "← Back";
     back.addEventListener("click", () => {
       captureSection();
-      state.sectionIndex = stepSection(state.sectionIndex, state.sections.length, -1);
-      renderAuditSection();
+      rememberDraft();
+      const section = stepSection(state.sectionIndex, state.sections.length, -1);
+      go({ name: "audit", auditId: state.audit.auditId, section });
     });
     nav.appendChild(back);
   }
@@ -224,8 +394,9 @@ function renderAuditSection() {
     next.textContent = "Next section →";
     next.addEventListener("click", () => {
       captureSection();
-      state.sectionIndex = stepSection(state.sectionIndex, state.sections.length, 1);
-      renderAuditSection();
+      rememberDraft();
+      const section = stepSection(state.sectionIndex, state.sections.length, 1);
+      go({ name: "audit", auditId: state.audit.auditId, section });
     });
     nav.appendChild(next);
   } else {
@@ -296,6 +467,7 @@ function addMediaControls(card, q) {
       remove.addEventListener("click", () => {
         if (media.previewUrl) URL.revokeObjectURL(media.previewUrl);
         state.media[q.questionId] = mediaList(q.questionId).filter((_, i) => i !== index);
+        rememberDraft();
         status.textContent = "Removed from this audit. The stored file, if the upload finished, is left in place.";
         renderList();
       });
@@ -322,6 +494,7 @@ function addMediaControls(card, q) {
         existingKeys: mediaList(q.questionId).map((item) => item.objectKey),
       });
       mediaList(q.questionId).push(saved);
+      rememberDraft();
       status.textContent = "Upload finished.";
       renderList();
     } catch (err) {
@@ -402,7 +575,8 @@ async function saveAndFinish() {
       })),
     });
     state.lastResult = result;
-    await showTodoReview(result);
+    rememberDraft();
+    showView("todos");
   } catch (err) {
     state.submitting = false;
     setStatus("status", err.message, true);
@@ -414,7 +588,6 @@ async function saveAndFinish() {
 }
 
 async function showTodoReview(result) {
-  showView("todos");
   const box = document.getElementById("todosBox");
   let html =
     "<h2>Review to-dos</h2>" +
@@ -467,8 +640,8 @@ function backToAudit() {
   }
   state.sectionIndex = target;
   state.submitting = false;
-  showView("audit");
-  renderAuditSection();
+  rememberDraft();
+  go({ name: "audit", auditId: state.audit.auditId, section: target });
 }
 
 async function renderTodoCards(candidates, users, storeCode) {
@@ -537,6 +710,7 @@ async function createReviewedTodos() {
   try {
     const payload = await api("createTodosFromReview", { auditId: result.auditId, store: result.store, todos });
     state.todosLocked = true;
+    clearDraft(localStorage);
     const back = document.getElementById("backToAudit");
     if (back) back.remove();
     if (button) button.remove();
@@ -819,7 +993,15 @@ async function onPassword(event) {
     document.getElementById("currentPassword").value = "";
     document.getElementById("newPassword").value = "";
     document.getElementById("newPassword2").value = "";
-    showView("home");
+    let next = "";
+    try { next = sessionStorage.getItem(NEXT_KEY) || ""; } catch (err) { next = ""; }
+    try { sessionStorage.removeItem(NEXT_KEY); } catch (err) {}
+    if (next && next !== "#/login" && next !== "#/password") {
+      history.replaceState(null, "", next);
+      applyRoute(routeFromHash(next));
+    } else {
+      showView("home");
+    }
   } catch (err) {
     setStatus("passwordStatus", err.message, true);
     if (err.code === "unauthorized" || err.code === "session-expired") showView("login");
@@ -829,15 +1011,41 @@ async function onPassword(event) {
 async function logout() {
   try { await api("logout"); } catch (err) {}
   clearToken();
+  clearDraft(localStorage);
+  try { sessionStorage.removeItem(NEXT_KEY); } catch (err) {}
   state.user = null;
   state.stores = [];
-  showView("login");
+  state.audit = null;
+  state.answers = {};
+  state.media = {};
+  state.lastResult = null;
+  state.todosLocked = false;
+  go({ name: "login" }, { replace: true });
+}
+
+function openCurrentRoute() {
+  const route = routeFromHash(location.hash || "#/home");
+  if (!location.hash) {
+    history.replaceState(null, "", hashForRoute(route));
+  }
+  applyRoute(route);
 }
 
 async function init() {
   document.body.addEventListener("click", (event) => {
     const nav = event.target.closest("[data-nav]");
-    if (nav) showView(nav.dataset.nav);
+    if (!nav) return;
+    event.preventDefault();
+    showView(nav.dataset.nav);
+  });
+  window.addEventListener("hashchange", () => {
+    if (!state.ready) return;
+    applyRoute(routeFromHash(location.hash));
+  });
+  window.addEventListener("pagehide", () => {
+    if (!state.audit || !state.user) return;
+    captureSection();
+    rememberDraft();
   });
   document.getElementById("loginForm").addEventListener("submit", onLogin);
   document.getElementById("bootstrapForm").addEventListener("submit", onBootstrap);
@@ -846,26 +1054,53 @@ async function init() {
   document.getElementById("showBootstrap").addEventListener("click", () => {
     document.getElementById("bootstrapForm").hidden = false;
   });
-  document.getElementById("auditStore").addEventListener("change", loadTemplates);
+  document.getElementById("auditStore").addEventListener("change", () => {
+    go({ name: "templates", store: storeValue() });
+  });
   document.getElementById("refreshPastDue").addEventListener("click", loadPastDue);
   bindBuilderControls();
+  state.ready = true;
   if (!scriptConfigured()) {
-    showView("login");
+    go({ name: "login" }, { replace: true });
     setStatus("loginStatus", "This copy of the app does not have its Apps Script link yet. Paste the /exec URL into js/config.js, then commit that change so GitHub Pages picks it up.", true);
     return;
   }
   if (!getToken()) {
-    showView("login");
+    const requested = routeFromHash(location.hash || "#/home");
+    if (requested.name !== "login" && requested.name !== "home") {
+      try { sessionStorage.setItem(NEXT_KEY, hashForRoute(requested)); } catch (err) {}
+    }
+    go({ name: "login" }, { replace: true });
     return;
   }
   try {
     const me = await api("me");
     state.user = me.user;
     state.stores = me.stores || [];
-    showView(me.user.mustChangePassword ? "password" : "home");
+    if (me.user.mustChangePassword) {
+      const requested = routeFromHash(location.hash || "#/home");
+      if (requested.name !== "password" && requested.name !== "login") {
+        try { sessionStorage.setItem(NEXT_KEY, hashForRoute(requested)); } catch (err) {}
+      }
+      go({ name: "password" }, { replace: true });
+      return;
+    }
+    let next = "";
+    try { next = sessionStorage.getItem(NEXT_KEY) || ""; } catch (err) { next = ""; }
+    if (next) {
+      try { sessionStorage.removeItem(NEXT_KEY); } catch (err) {}
+      history.replaceState(null, "", next);
+      applyRoute(routeFromHash(next));
+      return;
+    }
+    if (!location.hash || location.hash === "#/login") {
+      go({ name: "home" }, { replace: true });
+      return;
+    }
+    openCurrentRoute();
   } catch (err) {
     clearToken();
-    showView("login");
+    go({ name: "login" }, { replace: true });
     setStatus("loginStatus", err.message, true);
   }
 }

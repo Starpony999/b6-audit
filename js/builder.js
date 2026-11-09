@@ -110,7 +110,7 @@ function renderTemplates(templates) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Edit checklist";
-    button.addEventListener("click", () => openBuilderTemplate(template.templateId));
+    button.addEventListener("click", () => deps.showView("builder-detail", { templateId: template.templateId }));
     card.appendChild(button);
     list.appendChild(card);
   });
@@ -155,7 +155,6 @@ export async function submitNewTemplate() {
 
 export async function openBuilderTemplate(templateId) {
   deps.state.builderTemplateId = templateId;
-  deps.showView("builder-detail");
   document.getElementById("builderDetailTitle").textContent = "Edit template";
   document.getElementById("builderQuestions").textContent = "Loading…";
   status("builderRenameStatus", "");
@@ -164,8 +163,12 @@ export async function openBuilderTemplate(templateId) {
   toggleNewQuestionFields();
   try {
     renderDetail(await api("listBuilderQuestions", { templateId }));
+    document.getElementById("builderRename").hidden = false;
+    document.getElementById("builderAddQuestion").hidden = false;
   } catch (err) {
-    document.getElementById("builderQuestions").textContent = err.message;
+    document.getElementById("builderRename").hidden = true;
+    document.getElementById("builderAddQuestion").hidden = true;
+    document.getElementById("builderQuestions").textContent = err.message || "Only an admin can do that.";
   }
 }
 
