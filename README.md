@@ -42,7 +42,7 @@ Do these in order. Skip a step only if it is already done.
 
 The script has to be **bound to that spreadsheet** (Extensions → Apps Script from the sheet). A standalone script will not see the tabs.
 
-The tabs stay named: **Users, Templates, Questions, Audits, Answers, Todos**. A **Sessions** tab is created the first time someone signs in. You do not type that one by hand.
+The tabs stay named: **Users, Templates, Questions, Audits, Answers, Todos**. A **Sessions** tab is created the first time someone signs in. A **PausedAudits** tab is created the first time someone pauses an audit or opens a list of paused audits. You do not type those two by hand.
 
 Do not insert a new column in front of column A on any tab. Column A is the id. New columns go at the end. The "Add missing columns" button does that and does not rewrite existing cells.
 
@@ -279,6 +279,20 @@ Do these two with a real manager (or gm) login and a real admin login. The autom
 - With Backblaze properties empty, a photo shows "Media storage is not configured" and the rest of the audit still saves.
 - After Backblaze is set up: a photo compresses, a video over about 8 MB is refused, the file survives Next/Back, and it shows on the to-do review. View links expire; open the app again to get a fresh one.
 
+## Pause and resume
+
+During an audit, **Pause** saves the store, checklist, answers, notes, photo/video file names, and the section you are on. The phone still keeps its own copy as you go. The sheet copy is what lets you continue on another phone.
+
+**Continue audit** shows on Home and at the top of that store’s audit list. You only see pauses you started. An admin sees everyone’s, with who started it and when it was last saved. Continue opens the saved section (`#/audit/<id>/section/N`) with the answers filled back in. Scores stay hidden.
+
+Delete asks you to confirm. Only the person who started it, or an admin, can continue or delete it. The script checks that again on every click. If a manager’s store access is taken away, they can no longer continue that pause.
+
+A pause that nobody updates for **7 days** is deleted. That happens when someone opens a continue list or continues an audit, and also when the existing daily reminder runs. You do not install a new trigger. No new Script properties.
+
+Submitting the audit removes the paused row and finishes the audit the usual way.
+
+After you merge this, paste the new `apps-script/Code.gs` over the script and deploy **Manage deployments → pencil → New version**. The website updates from GitHub Pages when `main` changes. Until the new script version is deployed, Pause will say the action is unknown.
+
 ## What the automatic tests actually check
 
 Run them from this folder:
@@ -289,7 +303,7 @@ node --test
 
 They use a fake spreadsheet, fake mail, and a fake Apps Script `Utilities` in Node. They do **not** call Google, Gmail, or Backblaze.
 
-They do check: password scrambling against a known PBKDF2 result, sessions stored only as a hash, lockout, logout, role and active re-read, forced password change, admin-only builder / past due / users, store and assignee filtering, scoring (including "No gets full points"), save-all refusing a bad row without writing, to-do creation, the 30-day default, reminder dates, past-due grouping, media rules, and the AWS sample signature for presigned URLs. They also check that every JavaScript file parses and that `js/config.js` points at this deployed `/exec` URL.
+They do check: password scrambling against a known PBKDF2 result, sessions stored only as a hash, lockout, logout, role and active re-read, forced password change, admin-only builder / past due / users, store and assignee filtering, scoring (including "No gets full points"), save-all refusing a bad row without writing, to-do creation, the 30-day default, reminder dates, past-due grouping, media rules, and the AWS sample signature for presigned URLs. They also check that every JavaScript file parses, that `js/config.js` points at this deployed `/exec` URL, and that pause/resume permissions, the 7-day discard, and save/restore work on a fake sheet.
 
 Not verified live: a real deploy, a real sign-in through Google's web app, a real MailApp delivery, a real Backblaze upload from a phone, or GitHub Pages itself.
 
@@ -310,4 +324,4 @@ Not verified live: a real deploy, a real sign-in through Google's web app, a rea
 
 The old page was drawn by Apps Script (`HtmlService`) and used the Google account that had the browser open. This repo keeps the same checklists, sections, Next/Back, to-do rules, store codes, and reminder rules, and moves the page out of Apps Script.
 
-Also fixed while moving it: due dates are stored as a calendar day so `YYYY-MM-DD` does not land on the previous evening; a person cannot complete someone else's to-do; audits stay inside the stores that person covers; user management is admin-only because it sets passwords; scores are not included in the audit payload; the old sample functions that could write a fake user into the live sheet were removed. The home-screen Fun Zone card opens the inventory site that already exists.
+Also fixed while moving it: due dates are stored as a calendar day so `YYYY-MM-DD` does not land on the previous evening; a person cannot complete someone else's to-do; audits stay inside the stores that person covers; user management is admin-only because it sets passwords; scores are not included in the audit payload; the old sample functions that could write a fake user into the live sheet were removed. The home-screen Fun Zone card opens the inventory site that already exists. Pause saves an in-progress audit to a PausedAudits tab so it can be continued later, including on another phone, and drops it after 7 days without an update.
