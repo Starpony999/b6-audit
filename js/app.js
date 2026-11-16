@@ -127,6 +127,7 @@ function applyRoute(route) {
     rememberDraft();
   }
   activate(route.name);
+  if (route.name === "home") loadPausedHome();
   if (route.name === "templates") {
     fillStores();
     const select = document.getElementById("auditStore");
@@ -162,26 +163,172 @@ function adoptDraft(draft) {
   state.submitting = false;
 }
 
-function restoreAudit(route) {
+function clampSection(index) {
+  const max = state.sections.length;
+  if (!max) return 0;
+  const n = Number(index) || 0;
+  return Math.min(Math.max(0, n), max - 1);
+}
+
+function applyResumePayload(data) {
+  state.audit = {
+    auditId: data.auditId,
+    store: data.store,
+    storeLabel: data.storeLabel || "",
+    templateName: data.templateName || "",
+    questions: data.questions || [],
+  };
+  state.answers = {};
+  state.media = {};
+  state.sections = groupQuestionsBySection(state.audit.questions);
+  (state.audit.questions || []).forEach((q) => {
+    state.answers[q.questionId] = { answer: "", note: "" };
+  });
+  (data.answers || []).forEach((item) => {
+    state.answers[item.questionId] = { answer: item.answer || "", note: item.note || "" };
+    const keys = Array.isArray(item.mediaUrls)
+      ? item.mediaUrls
+      : String(item.mediaUrls || "").split("|").filter(Boolean);
+    if (keys.length) {
+      state.media[item.questionId] = keys.map((objectKey) => ({
+        objectKey,
+        fileName: String(objectKey).split("/").pop() || "file",
+        mimeType: "",
+        previewUrl: "",
+      }));
+    }
+  });
+  state.lastResult = null;
+  state.todosLocked = false;
+  state.submitting = false;
+  state.sectionIndex = clampSection(data.sectionIndex);
+}
+
+async function restoreAudit(route) {
   const box = document.getElementById("auditBox");
   if (state.audit && state.audit.auditId === route.auditId) {
-    const max = state.sections.length;
-    state.sectionIndex = max ? Math.min(route.section || 0, max - 1) : 0;
+    state.sectionIndex = clampSection(route.section);
     renderAuditSection();
     return;
   }
   const draft = draftForUser(localStorage, state.user && state.user.email);
-  if (!draft || draft.audit.auditId !== route.auditId) {
-    state.audit = null;
-    box.innerHTML = '<p><a class="button" href="#/audits">← Audits</a></p>' +
-      "<h2>Doing audit</h2>" +
-      '<p class="muted">This audit is not on this phone anymore. Start it again from Audits. Answers already sent to the sheet are still there.</p>';
+  if (draft && draft.audit.auditId === route.auditId) {
+    adoptDraft(draft);
+    state.sectionIndex = clampSection(route.section);
+    renderAuditSection();
     return;
   }
-  adoptDraft(draft);
-  const max = state.sections.length;
-  state.sectionIndex = max ? Math.min(route.section || 0, max - 1) : 0;
-  renderAuditSection();
+  box.textContent = "Loading paused audit…";
+  try {
+    const data = await api("resumePausedAudit", { auditId: route.auditId });
+    applyResumePayload(data);
+    state.sectionIndex = clampSection(route.section != null ? route.section : data.sectionIndex);
+    rememberDraft();
+    renderAuditSection();
+  } catch (err) {
+    state.audit = null;
+    const denied = err.code === "forbidden";
+    box.innerHTML = '<p><a class="button" href="#/audits">← Audits</a></p>' +
+      "<h2>Doing audit</h2>" +
+      '<p class="muted">' + escapeHtml(denied
+        ? err.message
+        : "This audit is not saved for you. Start it again from Audits, or ask the person who paused it.") + "</p>";
+  }
+}
+
+function formatPausedWhen(iso) {
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleString();
+}
+
+function renderPausedList(container, items, emptyText) {
+  container.innerHTML = "";
+  if (!items.length) {
+    if (emptyText) {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = emptyText;
+      container.appendChild(note);
+    }
+    return;
+  }
+  const heading = document.createElement("h2");
+  heading.textContent = "Continue audit";
+  container.appendChild(heading);
+  items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const who = state.user && state.user.role === "admin"
+      ? (item.auditorName || item.auditorEmail || "Someone")
+      : "";
+    card.innerHTML =
+      "<strong>" + escapeHtml(item.templateName || "Checklist") + "</strong>" +
+      '<p class="muted">' + escapeHtml(item.store || "") +
+      (item.storeLabel ? " — " + escapeHtml(item.storeLabel) : "") +
+      (who ? " · Started by " + escapeHtml(who) : "") +
+      (item.updatedAt ? " · Saved " + escapeHtml(formatPausedWhen(item.updatedAt)) : "") +
+      "</p>";
+    const row = document.createElement("div");
+    row.className = "nav-row";
+    const resume = document.createElement("button");
+    resume.type = "button";
+    resume.textContent = "Continue";
+    resume.addEventListener("click", () => resumePaused(item.auditId));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", () => deletePaused(item.auditId, container));
+    row.append(resume, remove);
+    card.appendChild(row);
+    container.appendChild(card);
+  });
+}
+
+async function loadPausedHome() {
+  const box = document.getElementById("continueAudits");
+  if (!box) return;
+  box.innerHTML = "";
+  try {
+    const data = await api("listPausedAudits", {});
+    renderPausedList(box, data.paused || [], "");
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+
+async function resumePaused(auditId) {
+  try {
+    const data = await api("resumePausedAudit", { auditId });
+    applyResumePayload(data);
+    rememberDraft();
+    go({ name: "audit", auditId: data.auditId, section: state.sectionIndex });
+  } catch (err) {
+    window.alert(err.message);
+  }
+}
+
+async function deletePaused(auditId, container) {
+  const label = state.audit && state.audit.auditId === auditId ? "this audit" : "this paused audit";
+  if (!window.confirm("Delete " + label + "? Saved answers that were only in the pause will be removed.")) return;
+  try {
+    await api("deletePausedAudit", { auditId });
+    if (state.audit && state.audit.auditId === auditId) {
+      clearDraft(localStorage);
+      state.audit = null;
+      state.answers = {};
+      state.media = {};
+      state.lastResult = null;
+    } else {
+      const draft = draftForUser(localStorage, state.user && state.user.email);
+      if (draft && draft.audit.auditId === auditId) clearDraft(localStorage);
+    }
+    if (container && container.id === "continueAudits") await loadPausedHome();
+    else await loadTemplates();
+  } catch (err) {
+    window.alert(err.message);
+  }
 }
 
 function restoreReview(route) {
@@ -260,12 +407,22 @@ async function loadTemplates() {
   const box = document.getElementById("templates");
   const store = document.getElementById("auditStore").value.trim();
   if (!store) {
+    const pausedBox = document.getElementById("pausedForStore");
+    if (pausedBox) pausedBox.innerHTML = "";
     box.textContent = (state.stores || []).length
       ? "Select a store to see checklists…"
       : "Your account does not cover a store yet. Ask an admin.";
     return;
   }
   box.textContent = "Loading checklists for " + store + "…";
+  const pausedBox = document.getElementById("pausedForStore");
+  if (pausedBox) pausedBox.innerHTML = "";
+  try {
+    const paused = await api("listPausedAudits", { store });
+    if (pausedBox) renderPausedList(pausedBox, paused.paused || [], "");
+  } catch (err) {
+    if (pausedBox) pausedBox.textContent = err.message;
+  }
   try {
     const data = await api("listTemplatesForStore", { store });
     const templates = data.templates || [];
@@ -319,6 +476,29 @@ async function startAudit(templateId) {
     go({ name: "audit", auditId: payload.auditId, section: 0 });
   } catch (err) {
     box.textContent = err.message || previous;
+  }
+}
+
+async function pauseCurrentAudit() {
+  if (!state.audit) return;
+  captureSection();
+  rememberDraft();
+  setStatus("status", "Pausing…");
+  const answers = (state.audit.questions || []).map((q) => ({
+    questionId: q.questionId,
+    answer: (state.answers[q.questionId] || {}).answer || "",
+    note: (state.answers[q.questionId] || {}).note || "",
+    mediaUrls: (state.media[q.questionId] || []).map((file) => file.objectKey).filter(Boolean),
+  }));
+  try {
+    const result = await api("pauseAudit", {
+      auditId: state.audit.auditId,
+      sectionIndex: state.sectionIndex,
+      answers,
+    });
+    setStatus("status", (result && result.message) || "Paused. Continue it from Home or this store’s audit list.");
+  } catch (err) {
+    setStatus("status", err.message, true);
   }
 }
 
@@ -376,6 +556,12 @@ function renderAuditSection() {
   });
   const nav = document.createElement("div");
   nav.className = "nav-row";
+  const pause = document.createElement("button");
+  pause.type = "button";
+  pause.className = "secondary";
+  pause.textContent = "Pause";
+  pause.addEventListener("click", pauseCurrentAudit);
+  nav.appendChild(pause);
   if (state.sectionIndex > 0) {
     const back = document.createElement("button");
     back.type = "button";
