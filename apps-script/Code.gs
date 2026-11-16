@@ -1439,6 +1439,8 @@ function beginAudit_(body, user) {
 }
 
 var PAUSE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+// Google Sheets rejects a cell longer than 50,000 characters. Stay under that.
+var SHEET_CELL_LIMIT = 49000;
 
 function ensurePausedAuditsSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1447,9 +1449,22 @@ function ensurePausedAuditsSheet_() {
   sheet = ss.insertSheet('PausedAudits');
   sheet.appendRow([
     'auditId', 'templateId', 'templateName', 'store', 'auditorEmail', 'auditorName',
-    'sectionIndex', 'answersJson', 'updatedAt', 'startedAt'
+    'sectionIndex', 'updatedAt', 'startedAt'
   ]);
   return sheet;
+}
+
+function ensurePausedAnswersSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('PausedAnswers');
+  if (sheet) return sheet;
+  sheet = ss.insertSheet('PausedAnswers');
+  sheet.appendRow(['auditId', 'questionId', 'answer', 'note', 'mediaUrls']);
+  return sheet;
+}
+
+function pausedAnswersSheetIfAny_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PausedAnswers');
 }
 
 function pausedSheetIfAny_() {
@@ -1480,6 +1495,7 @@ function discardExpiredPausedAudits_() {
     if (!pauseIsStale_(updated, now)) continue;
     var auditId = String(data[i][idCol]);
     sheet.deleteRow(i + 1);
+    deletePausedAnswerRows_(auditId);
     deleteUnusedAuditRow_(auditId);
     removed++;
   }
@@ -1507,7 +1523,26 @@ function readPausedObject_(info, index) {
   return obj;
 }
 
+function deletePausedAnswerRows_(auditId) {
+  var sheet = pausedAnswersSheetIfAny_();
+  if (!sheet) return 0;
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) return 0;
+  var headers = trimHeaders_(data[0]);
+  var idCol = headers.indexOf('auditId');
+  if (idCol < 0) return 0;
+  var removed = 0;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][idCol]) === String(auditId)) {
+      sheet.deleteRow(i + 1);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 function deletePausedByAuditId_(auditId) {
+  deletePausedAnswerRows_(auditId);
   var sheet = pausedSheetIfAny_();
   if (!sheet) return false;
   var data = sheet.getDataRange().getValues();
@@ -1523,6 +1558,45 @@ function deletePausedByAuditId_(auditId) {
     }
   }
   return removed;
+}
+
+function readPausedAnswers_(auditId) {
+  var sheet = pausedAnswersSheetIfAny_();
+  if (!sheet) return [];
+  return rowsToObjects_(sheet).filter(function (row) {
+    return String(row.auditId) === String(auditId);
+  }).map(function (row) {
+    return {
+      questionId: String(row.questionId || ''),
+      answer: String(row.answer || ''),
+      note: String(row.note || ''),
+      mediaUrls: parseMediaUrlList_(row.mediaUrls || [])
+    };
+  });
+}
+
+function writePausedAnswers_(auditId, saved) {
+  deletePausedAnswerRows_(auditId);
+  var sheet = ensurePausedAnswersSheet_();
+  Object.keys(saved).forEach(function (qid) {
+    var item = saved[qid];
+    appendRowByHeaders_(sheet, {
+      auditId: auditId,
+      questionId: qid,
+      answer: item.answer,
+      note: item.note,
+      mediaUrls: (item.media || []).join('|')
+    });
+  });
+}
+
+function assertSheetCell_(value, label) {
+  if (String(value == null ? '' : value).length > SHEET_CELL_LIMIT) {
+    throw fail_(
+      label + ' is too long to save in the sheet (limit about 50,000 characters). Shorten it and pause again.',
+      'too-large'
+    );
+  }
 }
 
 function auditHasAnswers_(auditId) {
@@ -1579,9 +1653,12 @@ function collectPauseAnswers_(meta, answers) {
     var answer = String(a.answer || '').trim();
     if (String(q.type).toLowerCase() === 'yesno' && answer) answer = answer.toLowerCase();
     var note = String(a.note || '');
+    assertSheetCell_(answer, 'An answer');
+    assertSheetCell_(note, 'A note');
     var mediaList = [];
     if (parseMediaUrlList_(a.mediaUrls || a.media || []).length) {
       mediaList = parseMediaUrlList_(normalizeAnswerMedia_(meta.auditId, q.questionId, a.mediaUrls || a.media || []));
+      assertSheetCell_(mediaList.join('|'), 'The list of photos and videos');
     }
     if (answer) {
       var type = String(q.type || '').toLowerCase();
@@ -1636,9 +1713,9 @@ function pauseAudit_(body, user) {
     auditorEmail: meta.auditorEmail,
     auditorName: starterName_(meta.auditorEmail),
     sectionIndex: sectionIndex,
-    answersJson: JSON.stringify(saved),
     updatedAt: nowIso
   };
+  writePausedAnswers_(meta.auditId, saved);
   if (found.index < 0) {
     fields.auditId = meta.auditId;
     fields.startedAt = nowIso;
@@ -1680,21 +1757,9 @@ function resumePausedAudit_(body, user) {
     deleteUnusedAuditRow_(meta.auditId);
     throw fail_('That paused audit expired after 7 days and was removed.', 'not-found');
   }
-  var saved = {};
-  try { saved = JSON.parse(String(row.answersJson || '{}')); } catch (err) { saved = {}; }
-  if (!saved || typeof saved !== 'object') saved = {};
   var template = findTemplateById_(meta.templateId);
   var questions = getQuestionsForTemplate(meta.templateId).map(toAuditQuestion_);
-  var answers = [];
-  Object.keys(saved).forEach(function (qid) {
-    var item = saved[qid] || {};
-    answers.push({
-      questionId: String(qid),
-      answer: String(item.answer || ''),
-      note: String(item.note || ''),
-      mediaUrls: parseMediaUrlList_(item.media || [])
-    });
-  });
+  var answers = readPausedAnswers_(meta.auditId);
   return {
     ok: true,
     auditId: meta.auditId,

@@ -167,6 +167,58 @@ test('losing store access blocks resume, and a pause older than 7 days is remove
   assert.equal(objectsFrom(h.sheets.Audits).some((item) => item.auditId === audit.auditId), false);
 });
 
+test('long notes are stored one per row, and one oversized note is refused', () => {
+  const { h, admin, brian, audit, questionId } = setup();
+  const templateId = objectsFrom(h.sheets.Audits)[0].templateId;
+  const ids = [questionId];
+  for (let n = 0; n < 2; n += 1) {
+    const added = h.call({
+      action: 'addBuilderQuestion',
+      token: admin.token,
+      templateId,
+      section: 'Lobby',
+      text: 'Extra ' + n,
+      points: 1,
+      type: 'yesno',
+    });
+    assert.equal(added.ok, true, added.message);
+    ids.push(added.question.questionId);
+  }
+  const note = 'n'.repeat(20000);
+  const paused = h.call({
+    action: 'pauseAudit',
+    token: brian.token,
+    auditId: audit.auditId,
+    sectionIndex: 0,
+    answers: ids.map((id) => ({ questionId: id, answer: 'yes', note })),
+  });
+  assert.equal(paused.ok, true, paused.message);
+  let maxCell = 0;
+  h.sheets.PausedAnswers._rows.forEach((row) => {
+    row.forEach((cell) => {
+      maxCell = Math.max(maxCell, String(cell == null ? '' : cell).length);
+    });
+  });
+  assert.ok(maxCell < 25000, 'a cell held ' + maxCell + ' characters');
+  assert.equal(objectsFrom(h.sheets.PausedAnswers).length, 3);
+  const resumed = h.call({ action: 'resumePausedAudit', token: brian.token, auditId: audit.auditId });
+  assert.equal(resumed.ok, true, resumed.message);
+  assert.equal(resumed.answers.length, 3);
+  resumed.answers.forEach((item) => assert.equal(item.note, note));
+
+  const tooBig = h.call({
+    action: 'pauseAudit',
+    token: brian.token,
+    auditId: audit.auditId,
+    sectionIndex: 0,
+    answers: [{ questionId, answer: 'yes', note: 'x'.repeat(50000) }],
+  });
+  assert.equal(tooBig.ok, false);
+  assert.equal(tooBig.error, 'too-large');
+  assert.match(tooBig.message, /50,000/);
+  assert.equal(objectsFrom(h.sheets.PausedAnswers).length, 3);
+});
+
 test('the daily reminder also discards a pause that is 7 days old', () => {
   const { h, brian, audit, questionId } = setup();
   h.call({
@@ -180,4 +232,5 @@ test('the daily reminder also discards a pause that is 7 days old', () => {
   const result = h.context.sendTodoReminders();
   assert.equal(result.skipped, undefined);
   assert.equal(objectsFrom(h.sheets.PausedAudits).length, 0);
+  assert.equal(objectsFrom(h.sheets.PausedAnswers).length, 0);
 });

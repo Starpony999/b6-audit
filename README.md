@@ -42,7 +42,7 @@ Do these in order. Skip a step only if it is already done.
 
 The script has to be **bound to that spreadsheet** (Extensions → Apps Script from the sheet). A standalone script will not see the tabs.
 
-The tabs stay named: **Users, Templates, Questions, Audits, Answers, Todos**. A **Sessions** tab is created the first time someone signs in. A **PausedAudits** tab is created the first time someone pauses an audit or opens a list of paused audits. You do not type those two by hand.
+The tabs stay named: **Users, Templates, Questions, Audits, Answers, Todos**. A **Sessions** tab is created the first time someone signs in. A **PausedAudits** tab and a **PausedAnswers** tab are created the first time someone pauses an audit or opens a list of paused audits. You do not type those by hand. Each saved answer is its own row, so a long audit is not squeezed into one spreadsheet cell.
 
 Do not insert a new column in front of column A on any tab. Column A is the id. New columns go at the end. The "Add missing columns" button does that and does not rewrite existing cells.
 
@@ -288,6 +288,8 @@ During an audit, **Pause** saves the store, checklist, answers, notes, photo/vid
 Delete asks you to confirm. Only the person who started it, or an admin, can continue or delete it. The script checks that again on every click. If a manager’s store access is taken away, they can no longer continue that pause.
 
 A pause that nobody updates for **7 days** is deleted. That happens when someone opens a continue list or continues an audit, and also when the existing daily reminder runs. You do not install a new trigger. No new Script properties.
+
+One answer or note cannot be longer than about 50,000 characters, which is a Google Sheets limit. Pause stops and tells you to shorten it. Several long notes are fine, because each one is stored in its own cell.
 
 Submitting the audit removes the paused row and finishes the audit the usual way.
 
