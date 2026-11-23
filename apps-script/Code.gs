@@ -168,6 +168,10 @@ function dispatch_(body) {
 
     if (action === 'listTemplatesForStore') return listTemplatesForStore_(body, user);
     if (action === 'beginAudit') return beginAudit_(body, user);
+    if (action === 'pauseAudit') return pauseAudit_(body, user);
+    if (action === 'resumePausedAudit') return resumePausedAudit_(body, user);
+    if (action === 'listPausedAudits') return listPausedAudits_(body, user);
+    if (action === 'deletePausedAudit') return deletePausedAudit_(body, user);
     if (action === 'submitAuditAnswers') return submitAudit_(body, user);
     if (action === 'listEligibleAssignees') return listAssignees_(body, user);
     if (action === 'createTodosFromReview') return createTodos_(body, user);
@@ -1434,6 +1438,373 @@ function beginAudit_(body, user) {
   };
 }
 
+var PAUSE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+// Google Sheets rejects a cell longer than 50,000 characters. Stay under that.
+var SHEET_CELL_LIMIT = 49000;
+
+function ensurePausedAuditsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('PausedAudits');
+  if (sheet) return sheet;
+  sheet = ss.insertSheet('PausedAudits');
+  sheet.appendRow([
+    'auditId', 'templateId', 'templateName', 'store', 'auditorEmail', 'auditorName',
+    'sectionIndex', 'updatedAt', 'startedAt'
+  ]);
+  return sheet;
+}
+
+function ensurePausedAnswersSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('PausedAnswers');
+  if (sheet) return sheet;
+  sheet = ss.insertSheet('PausedAnswers');
+  sheet.appendRow(['auditId', 'questionId', 'answer', 'note', 'mediaUrls']);
+  return sheet;
+}
+
+function pausedAnswersSheetIfAny_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PausedAnswers');
+}
+
+function pausedSheetIfAny_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PausedAudits');
+}
+
+function pauseIsStale_(updatedAt, now) {
+  if (updatedAt === null || updatedAt === undefined || updatedAt === '') return true;
+  var t = new Date(updatedAt).getTime();
+  if (!isFinite(t)) return false;
+  return now.getTime() - t >= PAUSE_KEEP_MS;
+}
+
+function discardExpiredPausedAudits_() {
+  var sheet = pausedSheetIfAny_();
+  if (!sheet) return { removed: 0 };
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return { removed: 0 };
+  var headers = trimHeaders_(data[0]);
+  var idCol = headers.indexOf('auditId');
+  var updatedCol = headers.indexOf('updatedAt');
+  if (idCol < 0) return { removed: 0 };
+  var now = now_();
+  var removed = 0;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (!String(data[i][idCol] || '').trim()) continue;
+    var updated = updatedCol >= 0 ? data[i][updatedCol] : '';
+    if (!pauseIsStale_(updated, now)) continue;
+    var auditId = String(data[i][idCol]);
+    sheet.deleteRow(i + 1);
+    deletePausedAnswerRows_(auditId);
+    deleteUnusedAuditRow_(auditId);
+    removed++;
+  }
+  return { removed: removed };
+}
+
+function findPausedRow_(auditId) {
+  var sheet = ensurePausedAuditsSheet_();
+  var info = sheetIndex_(sheet);
+  if (info.map.auditId == null) return null;
+  for (var i = 1; i < info.data.length; i++) {
+    if (String(info.data[i][info.map.auditId]) === String(auditId)) {
+      return { info: info, index: i };
+    }
+  }
+  return { info: info, index: -1 };
+}
+
+function readPausedObject_(info, index) {
+  var obj = {};
+  info.headers.forEach(function (h, c) {
+    if (!h) return;
+    obj[h] = info.data[index][c];
+  });
+  return obj;
+}
+
+function deletePausedAnswerRows_(auditId) {
+  var sheet = pausedAnswersSheetIfAny_();
+  if (!sheet) return 0;
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) return 0;
+  var headers = trimHeaders_(data[0]);
+  var idCol = headers.indexOf('auditId');
+  if (idCol < 0) return 0;
+  var removed = 0;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][idCol]) === String(auditId)) {
+      sheet.deleteRow(i + 1);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+function deletePausedByAuditId_(auditId) {
+  deletePausedAnswerRows_(auditId);
+  var sheet = pausedSheetIfAny_();
+  if (!sheet) return false;
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) return false;
+  var headers = trimHeaders_(data[0]);
+  var idCol = headers.indexOf('auditId');
+  if (idCol < 0) return false;
+  var removed = false;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][idCol]) === String(auditId)) {
+      sheet.deleteRow(i + 1);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+function readPausedAnswers_(auditId) {
+  var sheet = pausedAnswersSheetIfAny_();
+  if (!sheet) return [];
+  return rowsToObjects_(sheet).filter(function (row) {
+    return String(row.auditId) === String(auditId);
+  }).map(function (row) {
+    return {
+      questionId: String(row.questionId || ''),
+      answer: String(row.answer || ''),
+      note: String(row.note || ''),
+      mediaUrls: parseMediaUrlList_(row.mediaUrls || [])
+    };
+  });
+}
+
+function writePausedAnswers_(auditId, saved) {
+  deletePausedAnswerRows_(auditId);
+  var sheet = ensurePausedAnswersSheet_();
+  Object.keys(saved).forEach(function (qid) {
+    var item = saved[qid];
+    appendRowByHeaders_(sheet, {
+      auditId: auditId,
+      questionId: qid,
+      answer: item.answer,
+      note: item.note,
+      mediaUrls: (item.media || []).join('|')
+    });
+  });
+}
+
+function assertSheetCell_(value, label) {
+  if (String(value == null ? '' : value).length > SHEET_CELL_LIMIT) {
+    throw fail_(
+      label + ' is too long to save in the sheet (limit about 50,000 characters). Shorten it and pause again.',
+      'too-large'
+    );
+  }
+}
+
+function auditHasAnswers_(auditId) {
+  var answers = rowsToObjects_(getSheet_('Answers'));
+  for (var i = 0; i < answers.length; i++) {
+    if (String(answers[i].auditId) === String(auditId)) return true;
+  }
+  return false;
+}
+
+function deleteUnusedAuditRow_(auditId) {
+  if (auditHasPersistedTodos_(auditId) || auditHasAnswers_(auditId)) return false;
+  var sheet = getSheet_('Audits');
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) return false;
+  var headers = trimHeaders_(data[0]);
+  var idCol = headers.indexOf('auditId');
+  if (idCol < 0) return false;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][idCol]) === String(auditId)) sheet.deleteRow(i + 1);
+  }
+  return true;
+}
+
+function requirePauseAccess_(auditId, user) {
+  var meta = getAuditMetaById_(auditId);
+  var me = normalizeEmailKey_(user.email);
+  var starter = normalizeEmailKey_(meta.auditorEmail);
+  var isStarter = !!(starter && starter === me);
+  if (!isAdmin_(user) && !isStarter) {
+    throw fail_('Only the person who started this audit, or an admin, can do that.', 'forbidden');
+  }
+  if (!isAdmin_(user) && !userCoversPhysicalStore_(user.store, meta.store)) {
+    throw fail_('Your account no longer covers store ' + meta.store + '.', 'forbidden');
+  }
+  if (auditHasPersistedTodos_(meta.auditId)) {
+    throw fail_('To-dos already exist for this audit.', 'locked');
+  }
+  return meta;
+}
+
+function starterName_(email) {
+  var user = findUserByEmail_(email);
+  if (user && user.name) return String(user.name);
+  return String(email || '');
+}
+
+function collectPauseAnswers_(meta, answers) {
+  var saved = {};
+  (answers || []).forEach(function (a) {
+    if (!a || !a.questionId) return;
+    var q = questionOnTemplate_(meta.templateId, a.questionId);
+    if (!q) throw fail_('A question on this audit was not found.', 'bad-answer');
+    var answer = String(a.answer || '').trim();
+    if (String(q.type).toLowerCase() === 'yesno' && answer) answer = answer.toLowerCase();
+    var note = String(a.note || '');
+    assertSheetCell_(answer, 'An answer');
+    assertSheetCell_(note, 'A note');
+    var mediaList = [];
+    if (parseMediaUrlList_(a.mediaUrls || a.media || []).length) {
+      mediaList = parseMediaUrlList_(normalizeAnswerMedia_(meta.auditId, q.questionId, a.mediaUrls || a.media || []));
+      assertSheetCell_(mediaList.join('|'), 'The list of photos and videos');
+    }
+    if (answer) {
+      var type = String(q.type || '').toLowerCase();
+      if (type === 'yesno' && answer !== 'yes' && answer !== 'no') {
+        throw fail_('Choose Yes or No for: ' + (q.text || 'a question'), 'bad-answer');
+      }
+      if (type === 'multiple') {
+        var parsed = parseOptions_(q.options);
+        if (!Object.prototype.hasOwnProperty.call(parsed.map, answer)) {
+          throw fail_('That choice is not on the question: ' + (q.text || ''), 'bad-answer');
+        }
+      }
+    }
+    if (!answer && !String(note).trim() && !mediaList.length) return;
+    saved[String(q.questionId)] = { answer: answer, note: note, media: mediaList };
+  });
+  return saved;
+}
+
+function publicPausedSummary_(row) {
+  var store = String(row.store || '');
+  return {
+    auditId: String(row.auditId || ''),
+    templateId: String(row.templateId || ''),
+    templateName: String(row.templateName || ''),
+    store: store,
+    storeLabel: PHYSICAL_STORE_LABELS[store] || store,
+    auditorEmail: String(row.auditorEmail || ''),
+    auditorName: String(row.auditorName || ''),
+    sectionIndex: Number(row.sectionIndex) || 0,
+    updatedAt: row.updatedAt ? String(row.updatedAt) : '',
+    startedAt: row.startedAt ? String(row.startedAt) : ''
+  };
+}
+
+function pauseAudit_(body, user) {
+  discardExpiredPausedAudits_();
+  var meta = requirePauseAccess_(body.auditId, user);
+  var sectionIndex = Number(body.sectionIndex);
+  if (!isFinite(sectionIndex) || sectionIndex < 0 || sectionIndex > 100) {
+    throw fail_('That section number is not valid.', 'bad-request');
+  }
+  sectionIndex = Math.floor(sectionIndex);
+  var saved = collectPauseAnswers_(meta, body.answers || []);
+  var template = findTemplateById_(meta.templateId);
+  var found = findPausedRow_(meta.auditId);
+  var nowIso = now_().toISOString();
+  var fields = {
+    templateId: meta.templateId,
+    templateName: String(template.name || ''),
+    store: meta.store,
+    auditorEmail: meta.auditorEmail,
+    auditorName: starterName_(meta.auditorEmail),
+    sectionIndex: sectionIndex,
+    updatedAt: nowIso
+  };
+  writePausedAnswers_(meta.auditId, saved);
+  if (found.index < 0) {
+    fields.auditId = meta.auditId;
+    fields.startedAt = nowIso;
+    appendRowByHeaders_(found.info.sheet, fields);
+  } else {
+    var existing = readPausedObject_(found.info, found.index);
+    Object.keys(fields).forEach(function (name) {
+      if (found.info.map[name] == null) {
+        ensureColumn_(found.info.sheet, name);
+        found.info = sheetIndex_(found.info.sheet);
+      }
+      writeCell_(found.info, found.index, name, fields[name]);
+    });
+    if (found.info.map.startedAt == null) {
+      ensureColumn_(found.info.sheet, 'startedAt');
+      found.info = sheetIndex_(found.info.sheet);
+    }
+    if (!existing.startedAt) writeCell_(found.info, found.index, 'startedAt', nowIso);
+  }
+  return {
+    ok: true,
+    auditId: meta.auditId,
+    sectionIndex: sectionIndex,
+    updatedAt: nowIso,
+    message: 'Paused. Continue it from Home or from this store’s audit list.'
+  };
+}
+
+function resumePausedAudit_(body, user) {
+  discardExpiredPausedAudits_();
+  var meta = requirePauseAccess_(body.auditId, user);
+  var found = findPausedRow_(meta.auditId);
+  if (!found || found.index < 0) {
+    throw fail_('That paused audit is no longer saved.', 'not-found');
+  }
+  var row = readPausedObject_(found.info, found.index);
+  if (pauseIsStale_(row.updatedAt, now_())) {
+    deletePausedByAuditId_(meta.auditId);
+    deleteUnusedAuditRow_(meta.auditId);
+    throw fail_('That paused audit expired after 7 days and was removed.', 'not-found');
+  }
+  var template = findTemplateById_(meta.templateId);
+  var questions = getQuestionsForTemplate(meta.templateId).map(toAuditQuestion_);
+  var answers = readPausedAnswers_(meta.auditId);
+  return {
+    ok: true,
+    auditId: meta.auditId,
+    store: meta.store,
+    storeLabel: PHYSICAL_STORE_LABELS[meta.store] || meta.store,
+    templateId: meta.templateId,
+    templateName: String(template.name || row.templateName || ''),
+    sectionIndex: Number(row.sectionIndex) || 0,
+    questions: questions,
+    answers: answers,
+    updatedAt: row.updatedAt ? String(row.updatedAt) : '',
+    auditorEmail: String(meta.auditorEmail || ''),
+    auditorName: String(row.auditorName || starterName_(meta.auditorEmail))
+  };
+}
+
+function listPausedAudits_(body, user) {
+  discardExpiredPausedAudits_();
+  var storeFilter = String(body.store || '').trim();
+  if (storeFilter) {
+    storeFilter = assertPhysicalStore_(storeFilter);
+    if (!isAdmin_(user)) assertUserCoversStore_(user, storeFilter);
+  }
+  ensurePausedAuditsSheet_();
+  var me = normalizeEmailKey_(user.email);
+  var rows = rowsToObjects_(getSheet_('PausedAudits')).filter(function (row) {
+    if (storeFilter && String(row.store || '').toUpperCase() !== storeFilter) return false;
+    if (isAdmin_(user)) return true;
+    return normalizeEmailKey_(row.auditorEmail) === me;
+  }).map(publicPausedSummary_);
+  rows.sort(function (a, b) {
+    if (a.updatedAt === b.updatedAt) return String(a.templateName).localeCompare(String(b.templateName));
+    return a.updatedAt < b.updatedAt ? 1 : -1;
+  });
+  return { ok: true, paused: rows };
+}
+
+function deletePausedAudit_(body, user) {
+  var meta = requirePauseAccess_(body.auditId, user);
+  var removed = deletePausedByAuditId_(meta.auditId);
+  if (!removed) throw fail_('That paused audit is no longer saved.', 'not-found');
+  deleteUnusedAuditRow_(meta.auditId);
+  return { ok: true, auditId: meta.auditId };
+}
+
 function getAuditMetaById_(auditId) {
   var id = String(auditId || '').trim();
   if (!id) throw fail_('Audit id is required.', 'bad-request');
@@ -1568,6 +1939,7 @@ function submitAudit_(body, user) {
   var info = sheetIndex_(getSheet_('Audits'));
   writeCell_(info, meta.rowIndex, 'completedAt', now_());
   writeCell_(info, meta.rowIndex, 'score', score);
+  deletePausedByAuditId_(meta.auditId);
   return {
     ok: true,
     score: score,
@@ -1869,6 +2241,7 @@ function sendTodoReminders() {
 }
 
 function sendTodoRemindersUnlocked_() {
+  discardExpiredPausedAudits_();
   ensureNamedColumns_('Todos', TODO_MARKER_COLUMNS);
   var todos = rowsToObjects_(getSheet_('Todos'));
   var today = calendarTodayParts_();
