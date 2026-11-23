@@ -9,6 +9,20 @@ import {
 } from "./audit-ui.js";
 import { bindBuilderControls, loadBuilderHome, openBuilderTemplate, registerBuilder } from "./builder.js";
 import { AUTOSAVE_INTERVAL_MS, buildPausePayload, createAutosaveController, shouldSaveAudit } from "./autosave.js";
+import {
+  DEFAULT_PAST_DUE_FILTERS,
+  DUE_MODES,
+  TODO_STATUSES,
+  cloneFilters,
+  filterChips,
+  filterPastDueItems,
+  groupPastDueItems,
+  loadPastDueFilters,
+  normalizeTodoStatus,
+  removeFilterChip,
+  savePastDueFilters,
+  statusLabel,
+} from "./past-due-filters.js";
 import { mediaPickerSpecs, uploadAuditFile } from "./media.js";
 import {
   NEXT_KEY,
@@ -1148,11 +1162,8 @@ async function loadMyTodos() {
       dueBtn.type = "button";
       dueBtn.textContent = "Update due date";
       dueBtn.addEventListener("click", () => saveDueDate(todo.todoId));
-      const doneBtn = document.createElement("button");
-      doneBtn.type = "button";
-      doneBtn.textContent = "Mark done";
-      doneBtn.addEventListener("click", () => completeTodo(todo.todoId));
-      card.append(dueBtn, document.createTextNode(" "), doneBtn);
+      card.append(dueBtn, document.createTextNode(" "));
+      card.appendChild(statusMenu(todo, () => loadMyTodos()));
       String(todo.mediaUrls || "").split("|").filter(Boolean).forEach((key) => {
         const open = document.createElement("button");
         open.type = "button";
@@ -1197,44 +1208,338 @@ async function completeTodo(todoId) {
   }
 }
 
+let pastDueReport = null;
+let pastDueFilters = null;
+let pastDueOpenPanel = "";
+
+function statusMenu(todo, afterChange) {
+  const wrap = document.createElement("div");
+  wrap.className = "status-control";
+  const current = normalizeTodoStatus(todo.status);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "status-pill status-" + current;
+  button.textContent = statusLabel(current);
+  button.setAttribute("aria-haspopup", "listbox");
+  button.setAttribute("aria-expanded", "false");
+  const menu = document.createElement("div");
+  menu.className = "status-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "listbox");
+  TODO_STATUSES.forEach((status) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "status-option status-" + status.id;
+    option.textContent = status.label;
+    option.setAttribute("role", "option");
+    option.addEventListener("click", async () => {
+      menu.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+      if (status.id === current) return;
+      try {
+        await api("setTodoStatus", { todoId: todo.todoId, status: status.id });
+        if (afterChange) await afterChange();
+      } catch (err) {
+        const note = document.getElementById("status-" + todo.todoId);
+        if (note) {
+          note.textContent = err.message;
+          note.className = "error";
+        } else window.alert(err.message);
+      }
+    });
+    menu.appendChild(option);
+  });
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    menu.hidden = !menu.hidden;
+    button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  });
+  wrap.append(button, menu);
+  return wrap;
+}
+
+function pastDueItems(report) {
+  if (report && Array.isArray(report.items)) return report.items;
+  const items = [];
+  ((report && report.groups) || []).forEach((group) => {
+    (group.items || []).forEach((item) => {
+      items.push(Object.assign({}, item, {
+        status: "todo",
+        assignedTo: group.email || "",
+        email: group.email || "",
+        displayName: group.displayName || "",
+        unassigned: !!group.unassigned,
+        inactiveUser: !!group.inactiveUser,
+        daysFromToday: item.daysOverdue ? -Number(item.daysOverdue) : null,
+      }));
+    });
+  });
+  return items;
+}
+
+function rememberPastDueFilters() {
+  if (!state.user) return;
+  savePastDueFilters(localStorage, state.user.email, pastDueFilters);
+}
+
+function changePastDueFilters(next) {
+  const open = document.querySelector("#pastDueFilters details[open]");
+  if (open) pastDueOpenPanel = open.dataset.panel || "";
+  pastDueFilters = cloneFilters(next);
+  rememberPastDueFilters();
+  renderPastDuePage();
+}
+
 async function loadPastDue() {
   setStatus("pastDueAuth", "Loading Past due…");
   document.getElementById("pastDueBox").textContent = "";
+  const filters = document.getElementById("pastDueFilters");
+  if (filters) filters.innerHTML = "";
   try {
-    renderPastDue(await api("getPastDueReport"));
+    pastDueReport = await api("getPastDueReport");
+    pastDueFilters = loadPastDueFilters(localStorage, state.user && state.user.email);
+    renderPastDuePage();
   } catch (err) {
     setStatus("pastDueAuth", err.message, true);
   }
 }
 
-function renderPastDue(report) {
-  setStatus("pastDueAuth", "As of " + (report.today || "") + " (" + (report.timezone || "") + "). " +
-    (report.totalItems || 0) + " past-due item(s) across " + (report.totalAssignees || 0) + " assignee(s).");
+function renderPastDuePage() {
+  const report = pastDueReport || {};
+  const today = report.today || "";
+  const items = filterPastDueItems(pastDueItems(report), pastDueFilters, today);
+  const groups = groupPastDueItems(items);
+  renderPastDueFilters(report, items.length);
+  setStatus("pastDueAuth", "As of " + (today || "") + " (" + (report.timezone || "America/Chicago") + "). " +
+    items.length + " result" + (items.length === 1 ? "" : "s") + ".");
   const box = document.getElementById("pastDueBox");
-  const groups = report.groups || [];
   if (!groups.length) {
-    box.innerHTML = '<div class="card">Nothing past due.</div>';
+    box.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "card past-due-empty";
+    const title = document.createElement("strong");
+    title.textContent = "No results";
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "No results – try different filters.";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "secondary";
+    reset.textContent = "Remove all filters";
+    reset.addEventListener("click", () => changePastDueFilters(DEFAULT_PAST_DUE_FILTERS));
+    empty.append(title, note, reset);
+    box.appendChild(empty);
     return;
   }
   box.innerHTML = "";
   groups.forEach((group) => {
     const card = document.createElement("div");
     card.className = "card";
-    let title = group.unassigned ? "Unassigned" : escapeHtml(group.displayName || group.email || "Unassigned");
-    if (group.email && !group.unassigned) title += ' <span class="muted">(' + escapeHtml(group.email) + ")</span>";
-    if (group.inactiveUser) title += ' <span class="muted">· inactive user</span>';
-    let html = "<strong>" + title + "</strong><p class=\"muted\">" + group.count + " past-due task" + (group.count === 1 ? "" : "s") + "</p>";
+    const heading = document.createElement("strong");
+    heading.textContent = group.unassigned ? "Unassigned" : (group.displayName || group.email || "Unassigned");
+    card.appendChild(heading);
+    if (group.email && !group.unassigned) {
+      const email = document.createElement("span");
+      email.className = "muted";
+      email.textContent = " (" + group.email + ")";
+      card.appendChild(email);
+    }
+    if (group.inactiveUser) {
+      const inactive = document.createElement("span");
+      inactive.className = "muted";
+      inactive.textContent = " · inactive user";
+      card.appendChild(inactive);
+    }
+    const count = document.createElement("p");
+    count.className = "muted";
+    count.textContent = group.count + " task" + (group.count === 1 ? "" : "s");
+    card.appendChild(count);
     (group.items || []).forEach((item) => {
-      html += '<div style="margin:10px 0;padding-top:8px;border-top:1px solid #eee;">' +
-        "<div><strong>" + escapeHtml(item.title) + "</strong></div>" +
-        '<p class="muted">Store: ' + escapeHtml(item.store || "—") + " · Due: " + escapeHtml(item.dueLabel || item.dueDate || "") +
-        " · " + item.daysOverdue + " day" + (item.daysOverdue === 1 ? "" : "s") + " overdue</p>" +
-        (item.details ? '<p class="muted">' + escapeHtml(item.details) + "</p>" : "") +
-        "</div>";
+      const row = document.createElement("div");
+      row.className = "past-due-item";
+      const title = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = item.title || "To-do";
+      title.appendChild(name);
+      const meta = document.createElement("p");
+      meta.className = "muted";
+      const when = item.daysFromToday < 0
+        ? (item.daysOverdue + " day" + (item.daysOverdue === 1 ? "" : "s") + " overdue")
+        : (item.dueLabel || item.dueDate || "No due date");
+      meta.textContent = "Store: " + (item.store || "—") + " · Due: " + (item.dueLabel || item.dueDate || "No due date") + " · " + when;
+      row.append(title, meta);
+      if (item.details) {
+        const details = document.createElement("p");
+        details.className = "muted";
+        details.textContent = item.details;
+        row.appendChild(details);
+      }
+      row.appendChild(statusMenu(item, loadPastDue));
+      card.appendChild(row);
     });
-    card.innerHTML = html;
     box.appendChild(card);
   });
+}
+
+function renderPastDueFilters(report, resultCount) {
+  const host = document.getElementById("pastDueFilters");
+  if (!host) return;
+  const filters = pastDueFilters || cloneFilters(DEFAULT_PAST_DUE_FILTERS);
+  host.innerHTML = "";
+  const bar = document.createElement("div");
+  bar.className = "card filter-bar";
+
+  const row = document.createElement("div");
+  row.className = "filter-controls";
+  row.appendChild(peopleFilter(report, filters));
+  row.appendChild(dueFilter(filters));
+  row.appendChild(statusFilter(filters));
+  const hideLabel = document.createElement("label");
+  hideLabel.className = "hide-closed";
+  const hide = document.createElement("input");
+  hide.type = "checkbox";
+  hide.checked = filters.hideClosed !== false;
+  hide.addEventListener("change", () => {
+    changePastDueFilters(Object.assign({}, filters, { hideClosed: hide.checked }));
+  });
+  hideLabel.append(hide, document.createTextNode(" Hide closed"));
+  row.appendChild(hideLabel);
+  const count = document.createElement("p");
+  count.className = "filter-count";
+  count.textContent = resultCount + " result" + (resultCount === 1 ? "" : "s");
+  row.appendChild(count);
+  bar.appendChild(row);
+
+  const chips = document.createElement("div");
+  chips.className = "filter-chips";
+  filterChips(filters, (report && report.people) || []).forEach((chip) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-chip";
+    button.textContent = chip.label + " ×";
+    button.setAttribute("aria-label", "Remove " + chip.label);
+    button.addEventListener("click", () => changePastDueFilters(removeFilterChip(filters, chip.id)));
+    chips.appendChild(button);
+  });
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "secondary filter-reset";
+  reset.textContent = "Remove all filters";
+  reset.addEventListener("click", () => changePastDueFilters(DEFAULT_PAST_DUE_FILTERS));
+  chips.appendChild(reset);
+  bar.appendChild(chips);
+  host.appendChild(bar);
+  if (pastDueOpenPanel) {
+    const reopen = host.querySelector('details[data-panel="' + pastDueOpenPanel + '"]');
+    if (reopen) reopen.open = true;
+  }
+}
+
+function peopleFilter(report, filters) {
+  const details = document.createElement("details");
+  details.className = "filter-pop";
+  details.dataset.panel = "people";
+  const summary = document.createElement("summary");
+  summary.textContent = filters.people.length ? ("Person (" + filters.people.length + ")") : "Person";
+  details.appendChild(summary);
+  const box = document.createElement("div");
+  box.className = "filter-pop-menu";
+  const options = [{ id: "__unassigned__", label: "Unassigned" }].concat(((report && report.people) || []).map((person) => ({
+    id: String(person.email || "").toLowerCase(),
+    label: person.name || person.email,
+  })));
+  options.forEach((option) => {
+    if (!option.id) return;
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = filters.people.indexOf(option.id) !== -1;
+    input.addEventListener("change", () => {
+      const people = filters.people.slice();
+      const index = people.indexOf(option.id);
+      if (input.checked && index === -1) people.push(option.id);
+      if (!input.checked && index !== -1) people.splice(index, 1);
+      changePastDueFilters(Object.assign({}, filters, { people }));
+    });
+    label.append(input, document.createTextNode(" " + option.label));
+    box.appendChild(label);
+  });
+  details.appendChild(box);
+  return details;
+}
+
+function dueFilter(filters) {
+  const wrap = document.createElement("div");
+  wrap.className = "filter-due";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "Due date");
+  DUE_MODES.forEach((mode) => {
+    const option = document.createElement("option");
+    option.value = mode.id;
+    option.textContent = mode.label;
+    if (mode.id === filters.due) option.selected = true;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", () => {
+    changePastDueFilters(Object.assign({}, filters, { due: select.value }));
+  });
+  wrap.appendChild(select);
+  if (filters.due === "before" || filters.due === "after") {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.value = filters.due === "before" ? (filters.before || "") : (filters.after || "");
+    input.setAttribute("aria-label", filters.due === "before" ? "Before date" : "After date");
+    input.addEventListener("change", () => {
+      const next = Object.assign({}, filters);
+      if (filters.due === "before") next.before = input.value;
+      else next.after = input.value;
+      changePastDueFilters(next);
+    });
+    wrap.appendChild(input);
+  }
+  if (filters.due === "range") {
+    const from = document.createElement("input");
+    from.type = "date";
+    from.value = filters.from || "";
+    from.setAttribute("aria-label", "From date");
+    const to = document.createElement("input");
+    to.type = "date";
+    to.value = filters.to || "";
+    to.setAttribute("aria-label", "To date");
+    const apply = () => changePastDueFilters(Object.assign({}, filters, { from: from.value, to: to.value }));
+    from.addEventListener("change", apply);
+    to.addEventListener("change", apply);
+    wrap.append(from, to);
+  }
+  return wrap;
+}
+
+function statusFilter(filters) {
+  const details = document.createElement("details");
+  details.className = "filter-pop";
+  details.dataset.panel = "status";
+  const summary = document.createElement("summary");
+  summary.textContent = filters.statuses.length ? ("Status (" + filters.statuses.length + ")") : "Status";
+  details.appendChild(summary);
+  const box = document.createElement("div");
+  box.className = "filter-pop-menu";
+  TODO_STATUSES.forEach((status) => {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = filters.statuses.indexOf(status.id) !== -1;
+    input.addEventListener("change", () => {
+      const statuses = filters.statuses.slice();
+      const index = statuses.indexOf(status.id);
+      if (input.checked && index === -1) statuses.push(status.id);
+      if (!input.checked && index !== -1) statuses.splice(index, 1);
+      changePastDueFilters(Object.assign({}, filters, { statuses }));
+    });
+    label.append(input, document.createTextNode(" " + status.label));
+    box.appendChild(label);
+  });
+  details.appendChild(box);
+  return details;
 }
 
 async function onLogin(event) {

@@ -283,6 +283,7 @@ test('only the assignee or an admin can close a to-do; due date stays a calendar
     todos: [{ questionId: q1, title: 'Mats', assignedTo: 'brian@example.com', dueDate: '2026-06-01' }],
   });
   const todo = objectsFrom(h.sheets.Todos)[0];
+  assert.equal(String(todo.status), 'todo');
   const carter = h.call({ action: 'login', email: 'carter@example.com', password: 'shared-secret' });
   const nope = h.call({ action: 'markTodoDone', token: carter.token, todoId: todo.todoId });
   assert.equal(nope.error, 'forbidden');
@@ -291,5 +292,77 @@ test('only the assignee or an admin can close a to-do; due date stays a calendar
   assert.equal(objectsFrom(h.sheets.Todos)[0].dueDate, '2026-06-15');
   const done = h.call({ action: 'markTodoDone', token: admin.token, todoId: todo.todoId });
   assert.equal(done.ok, true, done.message);
-  assert.equal(String(objectsFrom(h.sheets.Todos)[0].status), 'done');
+  assert.equal(String(objectsFrom(h.sheets.Todos)[0].status), 'complete');
+});
+
+test('old open and done values stay readable, and closed statuses skip reminders and past due', () => {
+  const h = createHarness();
+  const admin = h.call({
+    action: 'bootstrapAdmin',
+    name: 'Cassidy', email: 'cassidy@example.com',
+    password: 'correct-horse', passwordConfirm: 'correct-horse',
+    bootstrapSecret: 'setup-phrase-for-tests-only',
+  });
+  h.call({
+    action: 'addUser', token: admin.token, name: 'Brian', email: 'brian@example.com',
+    role: 'manager', store: 'RANCH', password: 'shared-secret', mustChangePassword: false,
+  });
+  const header = h.sheets.Todos._rows[0];
+  header.push('assignmentNotifiedAt', 'reminderDueSoonSentOn', 'reminderDueDaySentOn');
+  function add(title, due, status, assignedTo) {
+    const row = header.map(() => '');
+    const set = (name, value) => { row[header.indexOf(name)] = value; };
+    set('todoId', 'id-' + title);
+    set('title', title);
+    set('assignedTo', assignedTo);
+    set('store', 'CPR');
+    set('dueDate', due);
+    set('status', status);
+    h.sheets.Todos._rows.push(row);
+  }
+  add('Legacy open', '2026-03-20', 'open', 'brian@example.com');
+  add('Legacy done', '2026-03-20', 'done', 'brian@example.com');
+  add('Working', '2026-03-20', 'in_progress', 'brian@example.com');
+  add('Blocked', '2026-03-20', "Can't do", 'brian@example.com');
+  add('Today', '2026-04-01', 'todo', 'brian@example.com');
+
+  const report = h.call({ action: 'getPastDueReport', token: admin.token });
+  assert.equal(report.ok, true, report.message);
+  assert.equal(report.totalItems, 2);
+  const titles = report.groups[0].items.map((item) => item.title).sort();
+  assert.deepEqual(titles, ['Legacy open', 'Working']);
+  const byTitle = {};
+  report.items.forEach((item) => { byTitle[item.title] = item.status; });
+  assert.equal(byTitle['Legacy open'], 'todo');
+  assert.equal(byTitle['Legacy done'], 'complete');
+  assert.equal(byTitle.Blocked, 'cant_do');
+  assert.equal(byTitle.Today, 'todo');
+
+  const brian = h.call({ action: 'login', email: 'brian@example.com', password: 'shared-secret' });
+  const denied = h.call({ action: 'getPastDueReport', token: brian.token });
+  assert.equal(denied.error, 'forbidden');
+  const mine = h.call({ action: 'listMyTodos', token: brian.token });
+  assert.deepEqual(mine.todos.map((item) => item.title).sort(), ['Legacy open', 'Today', 'Working']);
+
+  const changed = h.call({
+    action: 'setTodoStatus', token: brian.token, todoId: 'id-Working', status: 'in progress',
+  });
+  assert.equal(changed.ok, true, changed.message);
+  assert.equal(changed.status, 'in_progress');
+  h.call({
+    action: 'addUser', token: admin.token, name: 'Carter', email: 'carter@example.com',
+    role: 'gm', store: 'SPZ', password: 'shared-secret', mustChangePassword: false,
+  });
+  const carter = h.call({ action: 'login', email: 'carter@example.com', password: 'shared-secret' });
+  assert.equal(h.call({
+    action: 'setTodoStatus', token: carter.token, todoId: 'id-Working', status: 'complete',
+  }).error, 'forbidden');
+
+  h.context.sendTodoReminders();
+  assert.equal(h.emails.length, 1);
+  assert.match(h.emails[0].body, /Legacy open/);
+  assert.match(h.emails[0].body, /Working/);
+  assert.doesNotMatch(h.emails[0].body, /Legacy done/);
+  assert.doesNotMatch(h.emails[0].body, /Blocked/);
+  assert.equal(admin.ok, true);
 });

@@ -178,6 +178,7 @@ function dispatch_(body) {
     if (action === 'listMyTodos') return { ok: true, todos: listMyTodos_(user) };
     if (action === 'updateTodoDueDate') return updateDue_(body, user);
     if (action === 'markTodoDone') return markDone_(body, user);
+    if (action === 'setTodoStatus') return setTodoStatus_(body, user);
     if (action === 'signMediaUpload') return signUpload_(body, user);
     if (action === 'signMediaRead') return signRead_(body, user);
 
@@ -2016,11 +2017,33 @@ function findTodo_(todoId) {
   throw fail_('To-do not found.', 'not-found');
 }
 
+function canonicalTodoStatus_(raw) {
+  var s = String(raw == null ? '' : raw).toLowerCase().replace(/[’']/g, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s || s === 'open' || s === 'todo' || s === 'to do') return 'todo';
+  if (s === 'in progress' || s === 'inprogress') return 'in_progress';
+  if (s === 'done' || s === 'complete' || s === 'completed') return 'complete';
+  if (s === 'cant do' || s === 'cantdo' || s === 'cannot do' || s === 'cannot') return 'cant_do';
+  return '';
+}
+
+function isClosedTodoStatus_(raw) {
+  var status = canonicalTodoStatus_(raw);
+  return status === 'complete' || status === 'cant_do';
+}
+
+function todoStatusLabel_(raw) {
+  var status = canonicalTodoStatus_(raw) || 'todo';
+  if (status === 'in_progress') return 'In progress';
+  if (status === 'complete') return 'Complete';
+  if (status === 'cant_do') return "Can't do";
+  return 'To do';
+}
+
 function listMyTodos_(user) {
   var email = normalizeEmailKey_(user.email);
   var today = calendarTodayParts_();
   return rowsToObjects_(getSheet_('Todos')).filter(function (t) {
-    if (String(t.status || '').toLowerCase() === 'done') return false;
+    if (isClosedTodoStatus_(t.status)) return false;
     return normalizeEmailKey_(t.assignedTo) === email;
   }).map(function (t) {
     var due = parseDueCalendarDay_(t.dueDate);
@@ -2039,7 +2062,7 @@ function listMyTodos_(user) {
       store: String(t.store || ''),
       dueDate: due ? due.key : '',
       dueState: dueState,
-      status: String(t.status || ''),
+      status: canonicalTodoStatus_(t.status) || 'todo',
       mediaUrls: String(t.mediaUrls || ''),
       auditId: String(t.auditId || '')
     };
@@ -2065,21 +2088,30 @@ function updateDue_(body, user) {
   throw fail_('To-do not found.', 'not-found');
 }
 
-function markDone_(body, user) {
-  var todo = findTodo_(body.todoId);
+function writeTodoStatus_(todo, user, rawStatus) {
   if (!userCanTouchTodo_(todo, user)) throw fail_('You cannot change that to-do.', 'forbidden');
+  var status = canonicalTodoStatus_(rawStatus);
+  if (!status) throw fail_("Pick To do, In progress, Complete, or Can't do.", 'bad-request');
   var info = sheetIndex_(getSheet_('Todos'));
   for (var i = 1; i < info.data.length; i++) {
     if (String(info.data[i][info.map.todoId]) !== String(todo.todoId)) continue;
-    writeCell_(info, i, 'status', 'done');
+    writeCell_(info, i, 'status', status);
     if (info.map.completedAt == null) {
       ensureColumn_(info.sheet, 'completedAt');
       info = sheetIndex_(getSheet_('Todos'));
     }
-    writeCell_(info, i, 'completedAt', now_().toISOString());
-    return { ok: true };
+    writeCell_(info, i, 'completedAt', isClosedTodoStatus_(status) ? now_().toISOString() : '');
+    return { ok: true, status: status, label: todoStatusLabel_(status) };
   }
   throw fail_('To-do not found.', 'not-found');
+}
+
+function markDone_(body, user) {
+  return writeTodoStatus_(findTodo_(body.todoId), user, 'complete');
+}
+
+function setTodoStatus_(body, user) {
+  return writeTodoStatus_(findTodo_(body.todoId), user, body.status);
 }
 
 function createTodos_(body, user) {
@@ -2114,7 +2146,7 @@ function createTodos_(body, user) {
       assignedBy: user.email,
       store: meta.store,
       dueDate: dueKey,
-      status: 'open',
+      status: 'todo',
       mediaUrls: mediaUrls,
       createdAt: now_().toISOString(),
       completedAt: '',
@@ -2247,7 +2279,7 @@ function sendTodoRemindersUnlocked_() {
   var today = calendarTodayParts_();
   var byEmail = {};
   todos.forEach(function (t) {
-    if (String(t.status || '').toLowerCase() === 'done') return;
+    if (isClosedTodoStatus_(t.status)) return;
     var email = String(t.assignedTo || '').trim();
     if (!email || email.indexOf('@') === -1) return;
     var dueParts = parseDueCalendarDay_(t.dueDate);
@@ -2340,16 +2372,44 @@ function pastDue_(admin) {
     };
   });
   var groupMap = {};
+  var items = [];
+  var peopleMap = {};
   rowsToObjects_(getSheet_('Todos')).forEach(function (t) {
-    if (String(t.status || '').toLowerCase() === 'done') return;
     var dueParts = parseDueCalendarDay_(t.dueDate);
-    if (!dueParts) return;
-    var delta = daysFromToCalendar_(today, dueParts);
-    if (delta === null || delta >= 0) return;
+    var delta = dueParts ? daysFromToCalendar_(today, dueParts) : null;
     var emailRaw = String(t.assignedTo || '').trim();
-    var key = emailRaw ? normalizeEmailKey_(emailRaw) : '__unassigned__';
+    var personKey = emailRaw ? normalizeEmailKey_(emailRaw) : '__unassigned__';
+    var known = emailRaw ? usersByEmail[personKey] : null;
+    var status = canonicalTodoStatus_(t.status) || 'todo';
+    if (emailRaw && !peopleMap[personKey]) {
+      peopleMap[personKey] = {
+        email: known && known.email ? known.email : emailRaw,
+        name: known && known.name ? known.name : emailRaw
+      };
+    }
+    items.push({
+      todoId: String(t.todoId || ''),
+      title: String(t.title || 'To-do'),
+      store: String(t.store || ''),
+      dueDate: dueParts ? dueParts.key : '',
+      dueLabel: dueParts ? formatDueLabel_(dueParts) : '',
+      daysFromToday: delta,
+      daysOverdue: delta != null && delta < 0 ? Math.abs(delta) : 0,
+      details: String(t.details || ''),
+      mediaUrls: String(t.mediaUrls || ''),
+      status: status,
+      statusLabel: todoStatusLabel_(status),
+      closed: isClosedTodoStatus_(status),
+      assignedTo: emailRaw,
+      email: emailRaw,
+      displayName: known && known.name ? known.name : (emailRaw || 'Unassigned'),
+      inactiveUser: !!(known && !known.active),
+      unassigned: !emailRaw
+    });
+    if (isClosedTodoStatus_(status)) return;
+    if (!dueParts || delta === null || delta >= 0) return;
+    var key = personKey;
     if (!groupMap[key]) {
-      var known = emailRaw ? usersByEmail[key] : null;
       groupMap[key] = {
         key: key,
         email: emailRaw || '',
@@ -2369,6 +2429,13 @@ function pastDue_(admin) {
       details: String(t.details || ''),
       mediaUrls: String(t.mediaUrls || '')
     });
+  });
+  Object.keys(usersByEmail).forEach(function (userKey) {
+    if (peopleMap[userKey]) return;
+    peopleMap[userKey] = {
+      email: usersByEmail[userKey].email,
+      name: usersByEmail[userKey].name || usersByEmail[userKey].email
+    };
   });
   var groups = Object.keys(groupMap).map(function (k) {
     var g = groupMap[k];
@@ -2392,7 +2459,11 @@ function pastDue_(admin) {
     timezone: today.tz,
     totalAssignees: groups.filter(function (g) { return !g.unassigned; }).length,
     totalItems: totalItems,
-    groups: groups
+    groups: groups,
+    items: items,
+    people: Object.keys(peopleMap).map(function (k) { return peopleMap[k]; }).sort(function (a, b) {
+      return String(a.name).localeCompare(String(b.name));
+    })
   };
 }
 
