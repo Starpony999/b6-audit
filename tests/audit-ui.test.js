@@ -56,20 +56,14 @@ test('default due date is 30 calendar days and applies-to needs a store', () => 
   assert.throws(() => appliesValue('SELECTED', []), /at least one store/);
 });
 
-test('camera opens the camera and library does not force capture', () => {
+test('Choose Photo does not force the camera and allows more than one file', () => {
   const specs = mediaPickerSpecs();
-  assert.equal(specs.length, 2);
-  const camera = specs.find((spec) => spec.id === "camera");
-  const library = specs.find((spec) => spec.id === "library");
-  assert.equal(camera.label, "Take photo/video");
-  assert.equal(camera.capture, "environment");
-  assert.equal(camera.multiple, false);
-  assert.match(camera.accept, /image\/\*/);
-  assert.match(camera.accept, /video\/\*/);
-  assert.equal(library.label, "Choose from library");
-  assert.equal(library.capture, "");
-  assert.equal(library.multiple, true);
-  assert.equal(library.accept, camera.accept);
+  assert.equal(specs.length, 1);
+  const choose = specs[0];
+  assert.equal(choose.label, "Choose Photo");
+  assert.equal(Object.prototype.hasOwnProperty.call(choose, "capture"), false);
+  assert.equal(choose.multiple, true);
+  assert.equal(choose.accept, "image/*,video/*");
 });
 
 test('the phone rejects a video over about 8 MB before asking for an upload link', () => {

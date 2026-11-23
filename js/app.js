@@ -617,7 +617,7 @@ function addMediaControls(card, q) {
   heading.textContent = required ? "Photo/video evidence (Required)" : "Photo/video evidence (Optional)";
   const help = document.createElement("p");
   help.className = "muted";
-  help.textContent = "Take a photo or video, or choose ones already on this phone. Photos are compressed here before upload. Videos must be under about 8 MB. Up to 5 files.";
+  help.textContent = "Choose Photo opens this phone’s camera, photo library, or files. You can pick more than one. Photos are compressed here before upload. Videos must be under about 8 MB. Up to 5 files.";
   const status = document.createElement("p");
   status.className = "muted";
   const list = document.createElement("div");
@@ -722,10 +722,9 @@ function fileInput(spec) {
   input.type = "file";
   input.accept = spec.accept;
   input.className = "visually-hidden";
-  if (spec.capture) input.setAttribute("capture", spec.capture);
   if (spec.multiple) input.multiple = true;
   const label = document.createElement("label");
-  label.className = spec.id === "library" ? "button secondary" : "button";
+  label.className = "button";
   label.appendChild(document.createTextNode(spec.label));
   label.appendChild(input);
   return { input, label };
