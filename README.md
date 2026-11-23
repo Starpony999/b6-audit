@@ -24,6 +24,8 @@ https://starpony999.github.io/b6-audit/
 | `js/media.js` | The website. Compresses photos and uploads them straight to Backblaze. |
 | `manifest.webmanifest` | The website. Lets a phone offer "Add to Home Screen." |
 | `favicon.svg` | The website. The little B6 icon. |
+| `assets/b6-logo.png` | The website. Logo in the header. Do not recolor it. |
+| `assets/header-edge.svg` | The website. The torn bottom edge of the header. |
 | `.nojekyll` | The website. Tells GitHub Pages not to ignore files. Leave it empty. |
 | `.github/workflows/pages.yml` | GitHub Actions. Publishes the site when `main` changes. Do not paste this into Apps Script. |
 | `apps-script/Code.gs` | **Apps Script only.** Extensions → Apps Script on the audit spreadsheet → select all of `Code.gs` → paste this whole file. |

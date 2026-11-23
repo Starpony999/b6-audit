@@ -20,6 +20,7 @@ export function routeFromHash(hash) {
   });
   const head = (parts[0] || "home").toLowerCase();
   if (head === "home") return { name: "home" };
+  if (head === "links") return { name: "links" };
   if (head === "login") return { name: "login" };
   if (head === "password") return { name: "password" };
   if (head === "audits") return { name: "templates", store: String(parts[1] || "").toUpperCase() };
@@ -43,6 +44,7 @@ export function routeFromHash(hash) {
 export function hashForRoute(route) {
   const name = route && route.name;
   if (name === "login") return "#/login";
+  if (name === "links") return "#/links";
   if (name === "password") return "#/password";
   if (name === "templates") {
     const store = String(route.store || "").toUpperCase();
