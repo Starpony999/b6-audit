@@ -303,6 +303,14 @@ Submitting the audit removes the paused row and finishes the audit the usual way
 
 `apps-script/Code.gs` does **not** change for auto-save. It uses the pause action that is already deployed. Do not paste the script again, and do not deploy a new version, for this update. The website updates from GitHub Pages when `main` changes. If Pause on the live site still says the action is unknown, that earlier pause update was never deployed: paste `apps-script/Code.gs` and deploy **Manage deployments → pencil → New version** once. Auto-save needs that version, but this change does not add another one.
 
+## To-do statuses and Past due filters
+
+A to-do can be **To do**, **In progress**, **Complete**, or **Can't do**. New audit to-dos start as To do. Old sheet values still work: `open` is To do, and `done` is Complete. Nothing rewrites those old cells until someone changes that to-do.
+
+Complete and Can't do are closed. Reminder emails and the default Past due list skip them. Past due stays admin-only. Its filters can also show due today, the next 7 days, or another date range. Dates use the Chicago calendar day.
+
+This change **is** in `apps-script/Code.gs`. After it is on `main`, paste that whole file over the script and deploy **Manage deployments → pencil → New version**. Until that deploy, changing a status says the action is unknown. The website updates from GitHub Pages when `main` changes.
+
 ## What the automatic tests actually check
 
 Run them from this folder:
