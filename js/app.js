@@ -1,4 +1,4 @@
-import { api, clearToken, getToken, scriptConfigured, setToken } from "./api.js";
+import { api, clearToken, getToken, scriptConfigured, sendKeepalive, setToken } from "./api.js";
 import {
   auditQuestionHtml,
   defaultDueDate,
@@ -8,6 +8,7 @@ import {
   stepSection,
 } from "./audit-ui.js";
 import { bindBuilderControls, loadBuilderHome, openBuilderTemplate, registerBuilder } from "./builder.js";
+import { AUTOSAVE_INTERVAL_MS, buildPausePayload, createAutosaveController, shouldSaveAudit } from "./autosave.js";
 import { mediaPickerSpecs, uploadAuditFile } from "./media.js";
 import {
   NEXT_KEY,
@@ -72,7 +73,40 @@ function storeValue() {
 
 function rememberDraft() {
   if (state.audit && state.user) saveDraft(localStorage, state, state.user.email);
+  autosave.touch();
 }
+
+function auditViewIsActive() {
+  const view = document.getElementById("view-audit");
+  return !!(view && view.classList.contains("active"));
+}
+
+function pauseSnapshot() {
+  if (!shouldSaveAudit(state, auditViewIsActive())) return null;
+  return buildPausePayload(state.audit, state.answers, state.media, state.sectionIndex);
+}
+
+function captureAuditDom() {
+  const view = document.getElementById("view-audit");
+  if (!view || !view.classList.contains("active") || !state.audit) return;
+  captureSection();
+  if (state.audit && state.user) saveDraft(localStorage, state, state.user.email);
+}
+
+const autosave = createAutosaveController({
+  intervalMs: AUTOSAVE_INTERVAL_MS,
+  capture: captureAuditDom,
+  snapshot: pauseSnapshot,
+  post: (payload) => api("pauseAudit", payload),
+  keepalive: (payload) => sendKeepalive("pauseAudit", payload),
+  onStatus: (text) => {
+    const el = document.getElementById("autosaveStatus");
+    if (el) el.textContent = text || "";
+  },
+  onSaved: () => {
+    refreshContinueList();
+  },
+});
 
 function go(route, opts) {
   let next = route;
@@ -125,6 +159,10 @@ function applyRoute(route) {
   if (onAudit && state.audit && route.auditId === state.audit.auditId && (route.name === "audit" || route.name === "todos")) {
     captureSection();
     rememberDraft();
+  } else if (onAudit && state.audit && route.name !== "audit" && route.name !== "todos") {
+    captureSection();
+    rememberDraft();
+    autosave.flush();
   }
   activate(route.name);
   if (route.name === "home") loadPausedHome();
@@ -216,6 +254,7 @@ async function restoreAudit(route) {
     adoptDraft(draft);
     state.sectionIndex = clampSection(route.section);
     renderAuditSection();
+    autosave.flush();
     return;
   }
   box.textContent = "Loading paused audit…";
@@ -223,7 +262,9 @@ async function restoreAudit(route) {
     const data = await api("resumePausedAudit", { auditId: route.auditId });
     applyResumePayload(data);
     state.sectionIndex = clampSection(route.section != null ? route.section : data.sectionIndex);
+    autosave.resume();
     rememberDraft();
+    autosave.acknowledge();
     renderAuditSection();
   } catch (err) {
     state.audit = null;
@@ -302,7 +343,9 @@ async function resumePaused(auditId) {
   try {
     const data = await api("resumePausedAudit", { auditId });
     applyResumePayload(data);
+    autosave.resume();
     rememberDraft();
+    autosave.acknowledge();
     go({ name: "audit", auditId: data.auditId, section: state.sectionIndex });
   } catch (err) {
     window.alert(err.message);
@@ -312,7 +355,10 @@ async function resumePaused(auditId) {
 async function deletePaused(auditId, container) {
   const label = state.audit && state.audit.auditId === auditId ? "this audit" : "this paused audit";
   if (!window.confirm("Delete " + label + "? Saved answers that were only in the pause will be removed.")) return;
+  const deletingCurrent = !!(state.audit && state.audit.auditId === auditId);
+  if (deletingCurrent) autosave.suspend();
   try {
+    await autosave.whenIdle();
     await api("deletePausedAudit", { auditId });
     if (state.audit && state.audit.auditId === auditId) {
       clearDraft(localStorage);
@@ -327,23 +373,27 @@ async function deletePaused(auditId, container) {
     if (container && container.id === "continueAudits") await loadPausedHome();
     else await loadTemplates();
   } catch (err) {
+    if (deletingCurrent) autosave.resume();
     window.alert(err.message);
   }
 }
 
 function restoreReview(route) {
   if (state.lastResult && state.lastResult.auditId === route.auditId) {
+    autosave.suspend();
     showTodoReview(state.lastResult);
     return;
   }
   const draft = draftForUser(localStorage, state.user && state.user.email);
   if (draft && draft.audit.auditId === route.auditId && draft.lastResult) {
     adoptDraft(draft);
+    autosave.suspend();
     showTodoReview(draft.lastResult);
     return;
   }
   if (draft && draft.audit.auditId === route.auditId) {
     adoptDraft(draft);
+    autosave.resume();
     go({ name: "audit", auditId: route.auditId, section: draft.sectionIndex || 0 }, { replace: true });
     return;
   }
@@ -472,6 +522,7 @@ async function startAudit(templateId) {
     (payload.questions || []).forEach((q) => {
       state.answers[q.questionId] = { answer: "", note: "" };
     });
+    autosave.resume();
     rememberDraft();
     go({ name: "audit", auditId: payload.auditId, section: 0 });
   } catch (err) {
@@ -484,21 +535,30 @@ async function pauseCurrentAudit() {
   captureSection();
   rememberDraft();
   setStatus("status", "Pausing…");
-  const answers = (state.audit.questions || []).map((q) => ({
-    questionId: q.questionId,
-    answer: (state.answers[q.questionId] || {}).answer || "",
-    note: (state.answers[q.questionId] || {}).note || "",
-    mediaUrls: (state.media[q.questionId] || []).map((file) => file.objectKey).filter(Boolean),
-  }));
+  const outcome = await autosave.flush();
+  if (outcome.error) {
+    setStatus("status", outcome.error.message, true);
+    return;
+  }
+  if (!outcome.saved && outcome.skip !== "unchanged") {
+    setStatus("status", "Not saved yet", true);
+    return;
+  }
+  showView("home");
+}
+
+async function refreshContinueList() {
+  const route = routeFromHash(location.hash || "");
+  if (route.name === "home") return loadPausedHome();
+  if (route.name !== "templates") return;
+  const box = document.getElementById("pausedForStore");
+  const store = storeValue();
+  if (!box || !store) return;
   try {
-    const result = await api("pauseAudit", {
-      auditId: state.audit.auditId,
-      sectionIndex: state.sectionIndex,
-      answers,
-    });
-    setStatus("status", (result && result.message) || "Paused. Continue it from Home or this store’s audit list.");
+    const paused = await api("listPausedAudits", { store });
+    renderPausedList(box, paused.paused || [], "");
   } catch (err) {
-    setStatus("status", err.message, true);
+    box.textContent = err.message;
   }
 }
 
@@ -539,7 +599,8 @@ function renderAuditSection() {
     '<p class="muted">Store: ' + escapeHtml(storeLine) + "</p>" +
     '<p class="muted">Audit id: ' + escapeHtml(state.audit.auditId) + "</p>" +
     '<div class="card"><strong>Section ' + (state.sectionIndex + 1) + " of " + total + ": " + escapeHtml(section.name) +
-    "</strong><p class=\"muted\">Answer these items, then continue. Point values stay hidden until you submit.</p></div>";
+    "</strong><p class=\"muted\">Answer these items, then continue. Point values stay hidden until you submit. This audit saves to the sheet as you go.</p>" +
+    '<p id="autosaveStatus" class="muted autosave-status" role="status">' + escapeHtml(autosave.label()) + "</p></div>";
   document.getElementById("leaveAudit").addEventListener("click", () => {
     captureSection();
     rememberDraft();
@@ -568,9 +629,10 @@ function renderAuditSection() {
     back.textContent = "← Back";
     back.addEventListener("click", () => {
       captureSection();
+      state.sectionIndex = stepSection(state.sectionIndex, state.sections.length, -1);
       rememberDraft();
-      const section = stepSection(state.sectionIndex, state.sections.length, -1);
-      go({ name: "audit", auditId: state.audit.auditId, section });
+      autosave.flush();
+      go({ name: "audit", auditId: state.audit.auditId, section: state.sectionIndex });
     });
     nav.appendChild(back);
   }
@@ -580,9 +642,10 @@ function renderAuditSection() {
     next.textContent = "Next section →";
     next.addEventListener("click", () => {
       captureSection();
+      state.sectionIndex = stepSection(state.sectionIndex, state.sections.length, 1);
       rememberDraft();
-      const section = stepSection(state.sectionIndex, state.sections.length, 1);
-      go({ name: "audit", auditId: state.audit.auditId, section });
+      autosave.flush();
+      go({ name: "audit", auditId: state.audit.auditId, section: state.sectionIndex });
     });
     nav.appendChild(next);
   } else {
@@ -738,9 +801,14 @@ async function saveAndFinish() {
     return;
   }
   captureSection();
+  rememberDraft();
+  await autosave.whenIdle();
+  autosave.suspend();
+  const submittedPayload = buildPausePayload(state.audit, state.answers, state.media, state.sectionIndex);
   const questions = state.audit.questions || [];
   const missing = questions.filter((q) => q.requiresMedia && !(state.media[q.questionId] || []).length);
   if (missing.length) {
+    autosave.resume();
     setStatus("status", "Required photo/video evidence is missing for: " + missing.map((q) => q.text).join(", "), true);
     return;
   }
@@ -750,6 +818,7 @@ async function saveAndFinish() {
     return files.length && !answer;
   });
   if (mediaWithoutAnswer.length) {
+    autosave.resume();
     setStatus("status", "Pick an answer for each question that has a photo or video, or remove the file: " + mediaWithoutAnswer.map((q) => q.text).join(", "), true);
     return;
   }
@@ -771,10 +840,12 @@ async function saveAndFinish() {
       })),
     });
     state.lastResult = result;
+    autosave.acknowledge(submittedPayload);
     rememberDraft();
     showView("todos");
   } catch (err) {
     state.submitting = false;
+    autosave.resume();
     setStatus("status", err.message, true);
     if (button) {
       button.disabled = false;
@@ -836,6 +907,7 @@ function backToAudit() {
   }
   state.sectionIndex = target;
   state.submitting = false;
+  autosave.resume();
   rememberDraft();
   go({ name: "audit", auditId: state.audit.auditId, section: target });
 }
@@ -1205,6 +1277,11 @@ async function onPassword(event) {
 }
 
 async function logout() {
+  if (shouldSaveAudit(state, auditViewIsActive())) {
+    captureAuditDom();
+    await autosave.flush();
+  }
+  autosave.suspend();
   try { await api("logout"); } catch (err) {}
   clearToken();
   clearDraft(localStorage);
@@ -1238,11 +1315,18 @@ async function init() {
     if (!state.ready) return;
     applyRoute(routeFromHash(location.hash));
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") return;
+    if (!state.audit || !state.user) return;
+    captureAuditDom();
+    autosave.flush();
+  });
   window.addEventListener("pagehide", () => {
     if (!state.audit || !state.user) return;
-    captureSection();
-    rememberDraft();
+    captureAuditDom();
+    autosave.flushKeepalive();
   });
+  autosave.start();
   document.getElementById("loginForm").addEventListener("submit", onLogin);
   document.getElementById("bootstrapForm").addEventListener("submit", onBootstrap);
   document.getElementById("passwordForm").addEventListener("submit", onPassword);

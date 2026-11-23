@@ -219,6 +219,83 @@ test('long notes are stored one per row, and one oversized note is refused', () 
   assert.equal(objectsFrom(h.sheets.PausedAnswers).length, 3);
 });
 
+test('repeated saves keep one paused audit, and the 7-day clock follows the latest save', () => {
+  const { h, brian, audit, questionId } = setup();
+  const templateId = objectsFrom(h.sheets.Audits)[0].templateId;
+  const first = h.call({
+    action: 'pauseAudit',
+    token: brian.token,
+    auditId: audit.auditId,
+    sectionIndex: 0,
+    answers: [{ questionId, answer: 'no', note: 'first' }],
+  });
+  assert.equal(first.ok, true, first.message);
+  const startedAt = objectsFrom(h.sheets.PausedAudits)[0].startedAt;
+
+  for (let n = 1; n <= 4; n += 1) {
+    const again = h.call({
+      action: 'pauseAudit',
+      token: brian.token,
+      auditId: audit.auditId,
+      sectionIndex: n,
+      answers: [{ questionId, answer: 'no', note: 'edit ' + n }],
+    });
+    assert.equal(again.ok, true, again.message);
+  }
+  let rows = objectsFrom(h.sheets.PausedAudits);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].startedAt, startedAt);
+  assert.equal(Number(rows[0].sectionIndex), 4);
+  assert.equal(objectsFrom(h.sheets.PausedAnswers).length, 1);
+  assert.equal(objectsFrom(h.sheets.PausedAnswers)[0].note, 'edit 4');
+
+  h.context.B6_TEST_NOW = '2026-04-07T15:00:00.000Z';
+  const later = h.call({ action: 'login', email: 'brian@example.com', password: 'shared-secret' });
+  assert.equal(later.ok, true, later.message);
+  assert.equal(h.call({
+    action: 'pauseAudit',
+    token: later.token,
+    auditId: audit.auditId,
+    sectionIndex: 1,
+    answers: [{ questionId, answer: 'yes', note: 'still here' }],
+  }).ok, true);
+  rows = objectsFrom(h.sheets.PausedAudits);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].startedAt, startedAt);
+  assert.notEqual(rows[0].updatedAt, startedAt);
+
+  h.context.B6_TEST_NOW = '2026-04-13T15:00:00.000Z';
+  const still = h.call({ action: 'login', email: 'brian@example.com', password: 'shared-secret' });
+  assert.equal(h.call({ action: 'listPausedAudits', token: still.token }).paused.length, 1);
+
+  h.context.B6_TEST_NOW = '2026-04-14T15:00:00.000Z';
+  const gone = h.call({ action: 'login', email: 'brian@example.com', password: 'shared-secret' });
+  assert.equal(h.call({ action: 'listPausedAudits', token: gone.token }).paused.length, 0);
+
+  const fresh = h.call({
+    action: 'beginAudit',
+    token: gone.token,
+    templateId,
+    store: 'CPR',
+  });
+  assert.equal(fresh.ok, true, fresh.message);
+  assert.equal(h.call({
+    action: 'pauseAudit',
+    token: gone.token,
+    auditId: fresh.auditId,
+    sectionIndex: 0,
+    answers: [{ questionId, answer: 'yes', note: '' }],
+  }).ok, true);
+  assert.equal(h.call({
+    action: 'submitAuditAnswers',
+    token: gone.token,
+    auditId: fresh.auditId,
+    answers: [{ questionId, answer: 'yes', note: '' }],
+  }).ok, true);
+  assert.equal(h.call({ action: 'listPausedAudits', token: gone.token }).paused.length, 0);
+  assert.equal(objectsFrom(h.sheets.PausedAudits).some((row) => row.auditId === fresh.auditId), false);
+});
+
 test('the daily reminder also discards a pause that is 7 days old', () => {
   const { h, brian, audit, questionId } = setup();
   h.call({

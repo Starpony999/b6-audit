@@ -57,6 +57,7 @@ form label, .card > label { display: block; margin-top: 8px; }
 label.choice { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px 0 0; }
 label.choice input { width: auto; margin: 0; }
 .media-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd; }
+.autosave-status { margin: 4px 0 0; min-height: 1.2em; }
 .media-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .media-actions .button { margin: 0; }
 .visually-hidden {

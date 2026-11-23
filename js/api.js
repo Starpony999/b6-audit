@@ -18,7 +18,40 @@ export function clearToken() {
   try { localStorage.removeItem(TOKEN_KEY); } catch (err) {}
 }
 
-export async function api(action, payload) {
+export function requestBody(action, payload) {
+  return JSON.stringify(Object.assign({ action: action, token: getToken() }, payload || {}));
+}
+
+// Closing a tab can cancel a normal fetch. keepalive keeps the same POST
+// (text/plain JSON, same shape as api()) alive through the Apps Script redirect.
+// sendBeacon is only the fallback when fetch cannot be started. Apps Script
+// often drops beacon bodies on that redirect, so this is best effort.
+export function sendKeepalive(action, payload) {
+  const url = String(SCRIPT_URL || "").trim();
+  if (!url) return false;
+  const body = requestBody(action, payload);
+  if (body.length > 60000) return false;
+  try {
+    const pending = fetch(url, {
+      method: "POST",
+      redirect: "follow",
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body,
+    });
+    if (pending && typeof pending.catch === "function") pending.catch(() => {});
+    return true;
+  } catch (err) {
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        return navigator.sendBeacon(url, new Blob([body], { type: "text/plain;charset=utf-8" }));
+      }
+    } catch (beaconErr) {}
+    return false;
+  }
+}
+
+export async function api(action, payload, opts) {
   const url = String(SCRIPT_URL || "").trim();
   if (!url) {
     const err = new Error("This copy of the app does not have its Apps Script link yet. Add it in js/config.js.");
@@ -30,8 +63,9 @@ export async function api(action, payload) {
     const response = await fetch(url, {
       method: "POST",
       redirect: "follow",
+      keepalive: !!(opts && opts.keepalive),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(Object.assign({ action: action, token: getToken() }, payload || {})),
+      body: requestBody(action, payload),
     });
     text = await response.text();
   } catch (err) {
