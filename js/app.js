@@ -8,7 +8,7 @@ import {
   stepSection,
 } from "./audit-ui.js";
 import { bindBuilderControls, loadBuilderHome, openBuilderTemplate, registerBuilder } from "./builder.js";
-import { AUTOSAVE_INTERVAL_MS, buildPausePayload, createAutosaveController } from "./autosave.js";
+import { AUTOSAVE_INTERVAL_MS, buildPausePayload, createAutosaveController, shouldSaveAudit } from "./autosave.js";
 import { mediaPickerSpecs, uploadAuditFile } from "./media.js";
 import {
   NEXT_KEY,
@@ -76,8 +76,13 @@ function rememberDraft() {
   autosave.touch();
 }
 
+function auditViewIsActive() {
+  const view = document.getElementById("view-audit");
+  return !!(view && view.classList.contains("active"));
+}
+
 function pauseSnapshot() {
-  if (!state.user || !state.audit || state.submitting || state.todosLocked) return null;
+  if (!shouldSaveAudit(state, auditViewIsActive())) return null;
   return buildPausePayload(state.audit, state.answers, state.media, state.sectionIndex);
 }
 
@@ -92,7 +97,7 @@ const autosave = createAutosaveController({
   intervalMs: AUTOSAVE_INTERVAL_MS,
   capture: captureAuditDom,
   snapshot: pauseSnapshot,
-  post: (payload) => api("pauseAudit", payload, { keepalive: true }),
+  post: (payload) => api("pauseAudit", payload),
   keepalive: (payload) => sendKeepalive("pauseAudit", payload),
   onStatus: (text) => {
     const el = document.getElementById("autosaveStatus");
@@ -375,17 +380,20 @@ async function deletePaused(auditId, container) {
 
 function restoreReview(route) {
   if (state.lastResult && state.lastResult.auditId === route.auditId) {
+    autosave.suspend();
     showTodoReview(state.lastResult);
     return;
   }
   const draft = draftForUser(localStorage, state.user && state.user.email);
   if (draft && draft.audit.auditId === route.auditId && draft.lastResult) {
     adoptDraft(draft);
+    autosave.suspend();
     showTodoReview(draft.lastResult);
     return;
   }
   if (draft && draft.audit.auditId === route.auditId) {
     adoptDraft(draft);
+    autosave.resume();
     go({ name: "audit", auditId: route.auditId, section: draft.sectionIndex || 0 }, { replace: true });
     return;
   }
@@ -1269,6 +1277,10 @@ async function onPassword(event) {
 }
 
 async function logout() {
+  if (shouldSaveAudit(state, auditViewIsActive())) {
+    captureAuditDom();
+    await autosave.flush();
+  }
   autosave.suspend();
   try { await api("logout"); } catch (err) {}
   clearToken();

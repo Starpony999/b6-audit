@@ -37,6 +37,14 @@ export function fingerprintPause(payload) {
   });
 }
 
+export function shouldSaveAudit(state, auditViewActive) {
+  if (!state || !state.user || !state.audit || !state.audit.auditId) return false;
+  if (state.submitting || state.todosLocked) return false;
+  const submitted = state.lastResult && state.lastResult.auditId === state.audit.auditId;
+  if (submitted && !auditViewActive) return false;
+  return true;
+}
+
 export function decideAutosave(input) {
   const fingerprint = fingerprintPause(input && input.snapshot);
   if (!fingerprint) return { save: false, fingerprint: "", skip: "idle" };

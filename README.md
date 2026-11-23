@@ -285,7 +285,7 @@ During an audit, the phone keeps a local copy as you go. It also writes that sam
 
 It writes to the sheet when you tap **Next** or **Back**, when you leave the audit, when the phone app is hidden or the tab is closing, and about every 30 seconds while something is unsaved. If nothing changed, it does not write again. A second write updates the same paused audit instead of adding another row. The screen shows **Saving…**, **Saved**, or **Not saved yet**. If the phone is offline, you can keep working. The next Next, Back, timer, or return to the app tries again. The local copy is still there.
 
-Closing the tab sends the same JSON post with `fetch` keepalive so the request can finish after the page is gone. `sendBeacon` is only a fallback. Apps Script redirects that call, and a beacon sometimes loses its body, so a close is best effort. The 30-second save and the local copy cover that gap.
+While the page is open, saves use a normal request, so a long audit is not rejected by the browser’s 64 KB limit on keepalive requests. Closing the tab sends the same JSON post with `fetch` keepalive so the request can finish after the page is gone. That close-save is skipped when the body is over about 60 KB. `sendBeacon` is only a fallback. Apps Script redirects that call, and a beacon sometimes loses its body, so a close is best effort. The 30-second save and the local copy cover that gap. Logging out saves the audit first, then ends the session. A review screen after submit does not write a new paused row.
 
 **Pause** still saves and then returns to Home.
 

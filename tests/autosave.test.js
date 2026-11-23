@@ -7,6 +7,7 @@ import {
   createAutosaveController,
   decideAutosave,
   fingerprintPause,
+  shouldSaveAudit,
 } from '../js/autosave.js';
 
 function snapshot(answer, section) {
@@ -44,6 +45,26 @@ function controller(hooks) {
   });
   return { ctl, posts, beacons, timers, cleared: () => cleared, hooks };
 }
+
+test('a submitted review is not saved again until the audit screen is open', () => {
+  const state = {
+    user: { email: 'a@b.c' },
+    audit: { auditId: 'a1' },
+    submitting: false,
+    todosLocked: false,
+    lastResult: null,
+  };
+  assert.equal(shouldSaveAudit(state, true), true);
+  assert.equal(shouldSaveAudit(state, false), true);
+  state.lastResult = { auditId: 'a1' };
+  assert.equal(shouldSaveAudit(state, false), false);
+  assert.equal(shouldSaveAudit(state, true), true);
+  state.submitting = true;
+  assert.equal(shouldSaveAudit(state, true), false);
+  state.submitting = false;
+  state.todosLocked = true;
+  assert.equal(shouldSaveAudit(state, true), false);
+});
 
 test('an unchanged snapshot is not saved again', () => {
   const snap = snapshot('no', 1);
