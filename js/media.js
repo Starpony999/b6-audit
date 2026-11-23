@@ -1,22 +1,14 @@
 export const MEDIA_MAX_VIDEO_BYTES = 8 * 1024 * 1024;
 export const MEDIA_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-// Take photo/video uses capture so the phone opens the camera.
-// Choose from library must NOT set capture, or iPhone hides existing photos.
+// One button, and no capture attribute. Phones then show their own chooser
+// (camera, photo library, or files) instead of opening the camera only.
 export function mediaPickerSpecs() {
   return [
     {
-      id: "camera",
-      label: "Take photo/video",
+      id: "choose",
+      label: "Choose Photo",
       accept: "image/*,video/*",
-      capture: "environment",
-      multiple: false,
-    },
-    {
-      id: "library",
-      label: "Choose from library",
-      accept: "image/*,video/*",
-      capture: "",
       multiple: true,
     },
   ];
