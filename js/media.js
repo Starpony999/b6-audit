@@ -1,6 +1,27 @@
 export const MEDIA_MAX_VIDEO_BYTES = 8 * 1024 * 1024;
 export const MEDIA_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
+// Take photo/video uses capture so the phone opens the camera.
+// Choose from library must NOT set capture, or iPhone hides existing photos.
+export function mediaPickerSpecs() {
+  return [
+    {
+      id: "camera",
+      label: "Take photo/video",
+      accept: "image/*,video/*",
+      capture: "environment",
+      multiple: false,
+    },
+    {
+      id: "library",
+      label: "Choose from library",
+      accept: "image/*,video/*",
+      capture: "",
+      multiple: true,
+    },
+  ];
+}
+
 export function validateLocalFile(file) {
   const type = String((file && file.type) || "");
   const size = Number(file && file.size) || 0;
