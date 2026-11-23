@@ -8,7 +8,7 @@ import {
   stepSection,
 } from "./audit-ui.js";
 import { bindBuilderControls, loadBuilderHome, openBuilderTemplate, registerBuilder } from "./builder.js";
-import { uploadAuditFile } from "./media.js";
+import { mediaPickerSpecs, uploadAuditFile } from "./media.js";
 import {
   NEXT_KEY,
   clearDraft,
@@ -617,13 +617,15 @@ function addMediaControls(card, q) {
   heading.textContent = required ? "Photo/video evidence (Required)" : "Photo/video evidence (Optional)";
   const help = document.createElement("p");
   help.className = "muted";
-  help.textContent = "Take or choose a photo or video. Photos are compressed on this device before upload. Videos must be under about 8 MB.";
+  help.textContent = "Take a photo or video, or choose ones already on this phone. Photos are compressed here before upload. Videos must be under about 8 MB. Up to 5 files.";
   const status = document.createElement("p");
   status.className = "muted";
   const list = document.createElement("div");
-  const photo = fileInput("image/*", "Take / upload photo");
-  const video = fileInput("video/*", "Record / upload video");
-  wrap.append(heading, help, photo.label, video.label, status, list);
+  const actions = document.createElement("div");
+  actions.className = "media-actions";
+  const pickers = mediaPickerSpecs().map((spec) => fileInput(spec));
+  pickers.forEach((picker) => actions.appendChild(picker.label));
+  wrap.append(heading, help, actions, status, list);
 
   function renderList() {
     list.innerHTML = "";
@@ -670,8 +672,7 @@ function addMediaControls(card, q) {
       return;
     }
     status.textContent = String(file.type || "").startsWith("image/") ? "Compressing photo…" : "Preparing video…";
-    photo.input.disabled = true;
-    video.input.disabled = true;
+    setPickersEnabled(false);
     try {
       const saved = await uploadAuditFile(api, file, {
         auditId: state.audit.auditId,
@@ -685,38 +686,47 @@ function addMediaControls(card, q) {
       renderList();
     } catch (err) {
       status.textContent = err.message || "Upload failed.";
-      if (err.code === "media-not-configured") {
-        status.textContent = err.message;
-      }
     } finally {
-      photo.input.disabled = false;
-      video.input.disabled = false;
+      setPickersEnabled(true);
     }
   }
 
-  photo.input.addEventListener("change", () => {
-    const file = photo.input.files && photo.input.files[0];
-    photo.input.value = "";
-    onFile(file);
-  });
-  video.input.addEventListener("change", () => {
-    const file = video.input.files && video.input.files[0];
-    video.input.value = "";
-    onFile(file);
+  async function onFiles(fileList) {
+    const files = Array.from(fileList || []);
+    for (let i = 0; i < files.length; i += 1) {
+      if (mediaList(q.questionId).length >= 5) {
+        status.textContent = "Limit of 5 media files per question.";
+        return;
+      }
+      await onFile(files[i]);
+    }
+  }
+
+  function setPickersEnabled(on) {
+    pickers.forEach((picker) => { picker.input.disabled = !on; });
+  }
+
+  pickers.forEach((picker) => {
+    picker.input.addEventListener("change", () => {
+      const files = Array.from(picker.input.files || []);
+      picker.input.value = "";
+      onFiles(files);
+    });
   });
   renderList();
   card.appendChild(wrap);
 }
 
-function fileInput(accept, labelText) {
+function fileInput(spec) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = accept;
-  input.setAttribute("capture", "environment");
-  input.style.display = "block";
-  input.style.margin = "8px 0";
+  input.accept = spec.accept;
+  input.className = "visually-hidden";
+  if (spec.capture) input.setAttribute("capture", spec.capture);
+  if (spec.multiple) input.multiple = true;
   const label = document.createElement("label");
-  label.textContent = labelText;
+  label.className = spec.id === "library" ? "button secondary" : "button";
+  label.appendChild(document.createTextNode(spec.label));
   label.appendChild(input);
   return { input, label };
 }

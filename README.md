@@ -277,7 +277,7 @@ Do these two with a real manager (or gm) login and a real admin login. The autom
 - Unassigned to-dos send no email. Two tasks for one person send one email. The link is the GitHub Pages address.
 - A to-do due in 7 days, one due today, and one overdue each show up in the reminder. A done task does not. Running the reminder twice the same day does not send a second copy.
 - With Backblaze properties empty, a photo shows "Media storage is not configured" and the rest of the audit still saves.
-- After Backblaze is set up: a photo compresses, a video over about 8 MB is refused, the file survives Next/Back, and it shows on the to-do review. View links expire; open the app again to get a fresh one.
+- After Backblaze is set up: **Take photo/video** opens the camera. **Choose from library** lets you pick photos or videos already on the phone, including more than one. Photos compress, a video over about 8 MB is refused, files survive Next/Back, and they show on the to-do review. View links expire; open the app again to get a fresh one. Completing a to-do does not attach a new file; photos are added on the audit question.
 
 ## Pause and resume
 

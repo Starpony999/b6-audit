@@ -9,7 +9,7 @@ import {
   mergeSectionAnswers,
   stepSection,
 } from '../js/audit-ui.js';
-import { validateLocalFile } from '../js/media.js';
+import { mediaPickerSpecs, validateLocalFile } from '../js/media.js';
 
 test('audit questions hide scores and keep section order', () => {
   const html = auditQuestionHtml({
@@ -54,6 +54,22 @@ test('default due date is 30 calendar days and applies-to needs a store', () => 
   assert.equal(appliesValue('RANCH', []), 'RANCH');
   assert.equal(appliesValue('SELECTED', ['WPR', 'SPZ']), 'WPR,SPZ');
   assert.throws(() => appliesValue('SELECTED', []), /at least one store/);
+});
+
+test('camera opens the camera and library does not force capture', () => {
+  const specs = mediaPickerSpecs();
+  assert.equal(specs.length, 2);
+  const camera = specs.find((spec) => spec.id === "camera");
+  const library = specs.find((spec) => spec.id === "library");
+  assert.equal(camera.label, "Take photo/video");
+  assert.equal(camera.capture, "environment");
+  assert.equal(camera.multiple, false);
+  assert.match(camera.accept, /image\/\*/);
+  assert.match(camera.accept, /video\/\*/);
+  assert.equal(library.label, "Choose from library");
+  assert.equal(library.capture, "");
+  assert.equal(library.multiple, true);
+  assert.equal(library.accept, camera.accept);
 });
 
 test('the phone rejects a video over about 8 MB before asking for an upload link', () => {
