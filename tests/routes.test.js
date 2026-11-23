@@ -12,6 +12,7 @@ import {
 
 const screens = [
   [{ name: "home" }, "#/home"],
+  [{ name: "links" }, "#/links"],
   [{ name: "login" }, "#/login"],
   [{ name: "password" }, "#/password"],
   [{ name: "templates" }, "#/audits"],
@@ -46,6 +47,7 @@ test("admin addresses are marked so the page can refuse them", () => {
   assert.equal(isAdminScreen("builder-detail"), true);
   assert.equal(isAdminScreen("pastdue"), true);
   assert.equal(isAdminScreen("home"), false);
+  assert.equal(isAdminScreen("links"), false);
   assert.equal(isAdminScreen("audit"), false);
   assert.equal(isAdminScreen("mytodos"), false);
 });

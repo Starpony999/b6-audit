@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#1a73e8">
+  <meta name="theme-color" content="#451C1D">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <title>B6 Management</title>
@@ -12,10 +12,27 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <strong>B6 Management</strong>
-    <span id="whoami" class="muted"></span>
-    <button type="button" id="logoutBtn" hidden>Log out</button>
+  <header class="site-header">
+    <div class="site-header-bar">
+      <a class="brand" href="#/home" data-nav="home"><img src="assets/b6-logo.png" alt="B6 Management Group"></a>
+      <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="siteNav"><span aria-hidden="true">☰</span><span class="visually-hidden">Menu</span></button>
+      <nav id="siteNav" class="site-nav" aria-label="Main">
+        <a href="#/links" data-nav="links">Links</a>
+        <a href="#/audits" data-nav="templates">Audit</a>
+        <a href="#/users" data-nav="users" data-admin-nav hidden>Users</a>
+        <a href="#/my-todos" data-nav="mytodos">To-Dos</a>
+        <a href="#/builder" data-nav="builder" data-admin-nav hidden>Builder</a>
+        <div class="nav-drop" data-admin-nav hidden>
+          <button type="button" class="nav-drop-btn" id="adminMenuBtn" aria-expanded="false" aria-haspopup="true">Admin</button>
+          <div class="nav-drop-menu" id="adminMenu" hidden>
+            <a href="#/past-due" data-nav="pastdue">Past due</a>
+          </div>
+        </div>
+      </nav>
+      <span id="whoami" class="visually-hidden"></span>
+      <button type="button" id="logoutBtn" class="login-pill">Login</button>
+    </div>
+    <div class="header-edge" aria-hidden="true"></div>
   </header>
   <main id="app">
     <section id="view-login" class="view">
@@ -61,6 +78,11 @@
         <button type="submit">Save password</button>
         <p id="passwordStatus" class="muted" role="status"></p>
       </form>
+    </section>
+
+    <section id="view-links" class="view">
+      <h1>Links</h1>
+      <p class="muted">Coming soon.</p>
     </section>
 
     <section id="view-home" class="view">

@@ -19,7 +19,7 @@ import {
   saveDraft,
 } from "./routes.js";
 
-const VIEWS = ["login", "password", "home", "templates", "users", "audit", "todos", "mytodos", "pastdue", "builder", "builder-detail"];
+const VIEWS = ["login", "password", "home", "links", "templates", "users", "audit", "todos", "mytodos", "pastdue", "builder", "builder-detail"];
 
 const state = {
   user: null,
@@ -108,9 +108,24 @@ const autosave = createAutosaveController({
   },
 });
 
+function isOpenRoute(name) {
+  return name === "login" || name === "links";
+}
+
+function closeSiteNav() {
+  const nav = document.getElementById("siteNav");
+  const toggle = document.getElementById("navToggle");
+  const menu = document.getElementById("adminMenu");
+  const adminBtn = document.getElementById("adminMenuBtn");
+  if (nav) nav.classList.remove("open");
+  if (toggle) toggle.setAttribute("aria-expanded", "false");
+  if (menu) menu.hidden = true;
+  if (adminBtn) adminBtn.setAttribute("aria-expanded", "false");
+}
+
 function go(route, opts) {
   let next = route;
-  if (!state.user && next.name !== "login") {
+  if (!state.user && !isOpenRoute(next.name)) {
     try { sessionStorage.setItem(NEXT_KEY, hashForRoute(next)); } catch (err) {}
     next = { name: "login" };
   } else if (state.user && state.user.mustChangePassword && next.name !== "password" && next.name !== "login") {
@@ -136,12 +151,18 @@ function activate(name) {
     const el = document.getElementById("view-" + view);
     if (el) el.classList.toggle("active", view === name);
   });
+  document.querySelectorAll("#siteNav a[data-nav]").forEach((link) => {
+    const on = link.dataset.nav === name;
+    link.classList.toggle("is-current", on);
+    if (on) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
   paintHome();
   window.scrollTo(0, 0);
 }
 
 function applyRoute(route) {
-  if (!state.user && route.name !== "login") {
+  if (!state.user && !isOpenRoute(route.name)) {
     try { sessionStorage.setItem(NEXT_KEY, hashForRoute(route)); } catch (err) {}
     if ((location.hash || "") !== "#/login") {
       history.replaceState(null, "", "#/login");
@@ -408,14 +429,17 @@ function paintHome() {
   document.getElementById("homeUsersCard").hidden = !admin;
   document.getElementById("homeBuilderCard").hidden = !admin;
   document.getElementById("homePastDueCard").hidden = !admin;
+  document.querySelectorAll("[data-admin-nav]").forEach((el) => { el.hidden = !admin; });
   const who = document.getElementById("whoami");
   const logout = document.getElementById("logoutBtn");
   if (state.user) {
     who.textContent = state.user.name + " · " + state.user.role;
     logout.hidden = false;
+    logout.textContent = "Log out";
   } else {
     who.textContent = "";
-    logout.hidden = true;
+    logout.hidden = false;
+    logout.textContent = "Login";
   }
 }
 
@@ -1306,9 +1330,18 @@ function openCurrentRoute() {
 async function init() {
   document.body.addEventListener("click", (event) => {
     const nav = event.target.closest("[data-nav]");
-    if (!nav) return;
-    event.preventDefault();
-    showView(nav.dataset.nav);
+    if (nav) {
+      event.preventDefault();
+      closeSiteNav();
+      showView(nav.dataset.nav);
+      return;
+    }
+    if (!event.target.closest(".nav-drop")) {
+      const menu = document.getElementById("adminMenu");
+      const adminBtn = document.getElementById("adminMenuBtn");
+      if (menu) menu.hidden = true;
+      if (adminBtn) adminBtn.setAttribute("aria-expanded", "false");
+    }
   });
   window.addEventListener("hashchange", () => {
     if (!state.ready) return;
@@ -1329,7 +1362,25 @@ async function init() {
   document.getElementById("loginForm").addEventListener("submit", onLogin);
   document.getElementById("bootstrapForm").addEventListener("submit", onBootstrap);
   document.getElementById("passwordForm").addEventListener("submit", onPassword);
-  document.getElementById("logoutBtn").addEventListener("click", logout);
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    closeSiteNav();
+    if (!state.user) {
+      go({ name: "login" });
+      return;
+    }
+    logout();
+  });
+  document.getElementById("navToggle").addEventListener("click", () => {
+    const nav = document.getElementById("siteNav");
+    const open = nav.classList.toggle("open");
+    document.getElementById("navToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.getElementById("adminMenuBtn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const menu = document.getElementById("adminMenu");
+    menu.hidden = !menu.hidden;
+    event.currentTarget.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  });
   document.getElementById("showBootstrap").addEventListener("click", () => {
     document.getElementById("bootstrapForm").hidden = false;
   });
@@ -1346,6 +1397,10 @@ async function init() {
   }
   if (!getToken()) {
     const requested = routeFromHash(location.hash || "#/home");
+    if (requested.name === "links") {
+      go({ name: "links" }, { replace: true });
+      return;
+    }
     if (requested.name !== "login" && requested.name !== "home") {
       try { sessionStorage.setItem(NEXT_KEY, hashForRoute(requested)); } catch (err) {}
     }
