@@ -1,7 +1,7 @@
-// Screen addresses are hashes (#/past-due). GitHub Pages is a static host:
-// it has no server routes, and a path like /b6-audit/past-due would 404.
-// The hash stays in the browser, so refresh, Back, Forward, and bookmarks work
-// with the one index.html file.
+// Screen addresses are hashes (#/past-due). The site is static and is served
+// from the root of https://audit.b6management.com/ (not under /b6-audit/).
+// A path like /past-due would 404. The hash stays in the browser, so refresh,
+// Back, Forward, and bookmarks work with the one index.html file.
 
 export const DRAFT_KEY = "b6audit.draft";
 export const NEXT_KEY = "b6audit.next";

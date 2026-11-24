@@ -7,6 +7,7 @@
 # An admin turns it on once:
 # Settings → Pages → Build and deployment → Source: GitHub Actions
 # https://github.com/Starpony999/b6-audit/settings/pages
+# The live site is https://audit.b6management.com/ (CNAME in the repo root).
 
 name: Deploy to GitHub Pages
 

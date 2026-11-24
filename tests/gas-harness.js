@@ -241,7 +241,7 @@ export function createHarness() {
 
   resetSheets();
   props.BOOTSTRAP_SECRET = 'setup-phrase-for-tests-only';
-  props.APP_URL = 'https://starpony999.github.io/b6-audit/';
+  props.APP_URL = 'https://audit.b6management.com/';
 
   return { context, sheets, props, emails, cache, seed, call, resetSheets };
 }
