@@ -67,7 +67,7 @@ test('default due date is 30 days, explicit date wins, unassigned sends no mail'
   assert.equal(h.emails[0].to, 'brian@example.com');
   assert.match(h.emails[0].body, /Second look/);
   assert.doesNotMatch(h.emails[0].body, /Fix mats/);
-  assert.match(h.emails[0].body, /https:\/\/starpony999\.github\.io\/b6-audit\//);
+  assert.match(h.emails[0].body, /https:\/\/audit\.b6management\.com\//);
   assert.doesNotMatch(h.emails[0].body, /script\.google\.com/);
   const todos = objectsFrom(h.sheets.Todos);
   const unassigned = todos.find((t) => t.title === 'Fix mats');
@@ -202,7 +202,7 @@ test('reminders: 7 days, due today, overdue, done skipped, same-day marker, assi
   assert.doesNotMatch(h.emails[0].body, /Later/);
   assert.doesNotMatch(h.emails[0].body, /Mid/);
   assert.doesNotMatch(h.emails[0].body, /Fresh/);
-  assert.match(h.emails[0].body, /https:\/\/starpony999\.github\.io\/b6-audit\//);
+  assert.match(h.emails[0].body, /https:\/\/audit\.b6management\.com\//);
   assert.doesNotMatch(h.emails[0].body, /script\.google\.com/);
 
   h.emails.length = 0;

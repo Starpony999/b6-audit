@@ -6,9 +6,9 @@ The page itself is a normal website. GitHub Pages hosts it. The Google Sheet is 
 
 Nothing in this repository is a password or a Backblaze key. Those stay in Apps Script → Project Settings → Script properties, or in the sheet as a scrambled password. The web app address in `js/config.js` is the front door, not a secret.
 
-The website files live in the **root of this repo** (the same folder as this README), not in a `docs` folder. After GitHub Pages is turned on, the address is:
+The website files live in the **root of this repo** (the same folder as this README), not in a `docs` folder. The address is:
 
-https://starpony999.github.io/b6-audit/
+https://audit.b6management.com/
 
 ## Where each file goes
 
@@ -27,6 +27,7 @@ https://starpony999.github.io/b6-audit/
 | `assets/b6-logo.png` | The website. Logo in the header. Do not recolor it. |
 | `assets/header-edge.svg` | The website. The torn bottom edge of the header. |
 | `.nojekyll` | The website. Tells GitHub Pages not to ignore files. Leave it empty. |
+| `CNAME` | The website. Contains `audit.b6management.com` so the custom domain stays when the site is published. |
 | `.github/workflows/pages.yml` | GitHub Actions. Publishes the site when `main` changes. Do not paste this into Apps Script. |
 | `apps-script/Code.gs` | **Apps Script only.** Extensions → Apps Script on the audit spreadsheet → select all of `Code.gs` → paste this whole file. |
 | `apps-script/appsscript.json` | **Apps Script only.** The manifest (timezone, "run as me", "anyone"). |
@@ -91,7 +92,7 @@ Save.
 
 | Property | What to put |
 | --- | --- |
-| `APP_URL` | `https://starpony999.github.io/b6-audit/` |
+| `APP_URL` | `https://audit.b6management.com/` |
 | `BOOTSTRAP_SECRET` | A long phrase only you know. You will delete this after the first admin exists. |
 | `B2_KEY_ID` | Backblaze application key id (Chad). Leave blank until the bucket exists. |
 | `B2_APPLICATION_KEY` | Backblaze application key (the secret). Shown once. |
@@ -101,7 +102,7 @@ Save.
 
 The app runs without the five `B2_` properties. Photo and video buttons then say **Media storage is not configured.** Audits and to-dos still work.
 
-`APP_URL` is the link in assignment and reminder emails. If it is missing, or if it is a `script.google.com` link, the email tells the person to open the B6 app and does not include the old Apps Script address.
+`APP_URL` is the link in assignment and reminder emails. It must be exactly `https://audit.b6management.com/` (the custom domain, with no `/b6-audit/` on the end). If this property still says `https://starpony999.github.io/b6-audit/`, change that existing property. The emails read this property, not the website files. If it is missing, or if it is a `script.google.com` link, the email tells the person to open the B6 app and does not include the old Apps Script address.
 
 ### 5. Deploy the web app
 
@@ -146,6 +147,8 @@ The workflow cannot turn Pages on by itself.
 
 The workflow runs the tests first. It publishes only from `main`. Pull requests do not change the live site.
 
+The live address is **https://audit.b6management.com/** . The site sits at the root of that domain, so a screen is `https://audit.b6management.com/#/home`, not `…/b6-audit/#/home`. The `CNAME` file in this repo keeps that domain when GitHub publishes the site. The old GitHub Pages address may still open the same files.
+
 To look at the page on your computer before that:
 
 ```bash
@@ -171,13 +174,14 @@ The bucket stays **private**. The phone never sees the application key. The scri
 - Optional file-name prefix: **`audits/`** so the key cannot touch anything else in the bucket.
 - Do not turn on delete files, list all bucket names, write bucket settings, share files, or "all capabilities."
 
-**Bucket CORS** so a browser can PUT and GET from GitHub Pages. The origin has no path (`/b6-audit` is not part of it).
+**Bucket CORS** so a browser can PUT and GET. An origin has no path (`/b6-audit` is not part of it, and the custom domain has no path prefix). Keep both the custom domain and the GitHub Pages host.
 
 ```json
 [
   {
-    "corsRuleName": "b6AuditGitHubPages",
+    "corsRuleName": "b6AuditSite",
     "allowedOrigins": [
+      "https://audit.b6management.com",
       "https://starpony999.github.io"
     ],
     "allowedOperations": [
@@ -208,7 +212,7 @@ Use a bucket name with only lowercase letters, numbers, and dashes. Dots in the 
 
 ## Screen addresses
 
-Each screen has its own address after the `#`. GitHub Pages cannot route paths like `/past-due` (that would 404), so the address lives in the hash and the same `index.html` stays loaded. Refresh stays on that screen. The browser Back and Forward buttons move between screens. You can bookmark one.
+Each screen has its own address after the `#`. The host cannot route paths like `/past-due` (that would 404), so the address lives in the hash and the same `index.html` stays loaded. On the custom domain that is `https://audit.b6management.com/#/past-due`. Refresh stays on that screen. The browser Back and Forward buttons move between screens. You can bookmark one.
 
 | Screen | Address |
 | --- | --- |
